@@ -140,7 +140,3 @@ cd food-safety-investigation-ai
 ## Author
 
 Vasu — B.Tech Information Technology, Saveetha Engineering College
-
-## License
-
-MIT

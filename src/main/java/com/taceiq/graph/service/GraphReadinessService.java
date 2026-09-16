@@ -8,8 +8,9 @@ import com.taceiq.graph.dto.GraphValidationResult;
 import com.taceiq.repository.CanonicalEvidenceRepository;
 import com.taceiq.repository.IntegrationRepository;
 import com.taceiq.repository.IntegrationSyncRepository;
+import com.taceiq.repository.FileRepository;
+import com.taceiq.ingestion.SourceRecordIngestionService;
 import com.taceiq.security.AuthorizationService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -21,7 +22,6 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class GraphReadinessService {
 
@@ -31,6 +31,36 @@ public class GraphReadinessService {
     private final GraphProjectionService projectionService;
     private final GraphValidator validator;
     private final AuthorizationService authorizationService;
+    private final FileRepository fileRepository;
+    private final SourceRecordIngestionService ingestionService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GraphReadinessService(IntegrationRepository integrationRepository,
+                                 IntegrationSyncRepository syncRepository,
+                                 CanonicalEvidenceRepository canonicalRepo,
+                                 GraphProjectionService projectionService,
+                                 GraphValidator validator,
+                                 AuthorizationService authorizationService,
+                                 FileRepository fileRepository,
+                                 SourceRecordIngestionService ingestionService) {
+        this.integrationRepository = integrationRepository;
+        this.syncRepository = syncRepository;
+        this.canonicalRepo = canonicalRepo;
+        this.projectionService = projectionService;
+        this.validator = validator;
+        this.authorizationService = authorizationService;
+        this.fileRepository = fileRepository;
+        this.ingestionService = ingestionService;
+    }
+
+    public GraphReadinessService(IntegrationRepository integrationRepository,
+                                 IntegrationSyncRepository syncRepository,
+                                 CanonicalEvidenceRepository canonicalRepo,
+                                 GraphProjectionService projectionService,
+                                 GraphValidator validator,
+                                 AuthorizationService authorizationService) {
+        this(integrationRepository, syncRepository, canonicalRepo, projectionService, validator, authorizationService, null, null);
+    }
 
     public GraphReadinessResult checkReadiness(Long integrationId) {
         Long orgId = authorizationService.getCurrentOrgId();
@@ -206,11 +236,30 @@ public class GraphReadinessService {
             long totalCanonical = canonicalRepo.findAllByOrganisationOrgId(orgId).stream()
                     .filter(c -> !Boolean.TRUE.equals(c.getIsDeleted()))
                     .count();
+            if (totalCanonical == 0 && fileRepository != null && ingestionService != null) {
+                List<com.taceiq.entity.File> files = fileRepository.findByOrganisationOrgId(orgId);
+                if (files != null && !files.isEmpty()) {
+                    for (var f : files) {
+                        try {
+                            ingestionService.ingestFile(orgId, f.getId(), null);
+                        } catch (Exception e) {
+                            log.warn("Auto-ingest file {} failed for org {}: {}", f.getId(), orgId, e.getMessage());
+                        }
+                    }
+                    totalCanonical = canonicalRepo.findAllByOrganisationOrgId(orgId).stream()
+                            .filter(c -> !Boolean.TRUE.equals(c.getIsDeleted()))
+                            .count();
+                }
+            }
             if (totalCanonical > 0) {
                 try {
-                    projectionService.projectForOrganisation(orgId);
                     var validation = validator.validate(orgId);
                     long graphCount = validation.getEvidenceCount();
+                    if (!validation.isValid() || graphCount != totalCanonical) {
+                        projectionService.projectForOrganisation(orgId);
+                        validation = validator.validate(orgId);
+                        graphCount = validation.getEvidenceCount();
+                    }
                     boolean countMatches = graphCount == totalCanonical;
                     boolean hasEvidence = graphCount > 0;
                     boolean graphReady = validation.isValid() && countMatches && hasEvidence;

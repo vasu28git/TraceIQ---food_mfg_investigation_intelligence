@@ -225,110 +225,73 @@ public class GraphProjectionService {
                 }
             }
 
+            List<Map<String, Object>> evidenceItems = new ArrayList<>();
+            List<Map<String, Object>> incidentLinks = new ArrayList<>();
+            List<Map<String, Object>> caseItems = new ArrayList<>();
+            List<Map<String, Object>> actorItems = new ArrayList<>();
+            List<Map<String, Object>> parentLinks = new ArrayList<>();
+            List<Map<String, Object>> batchLinks = new ArrayList<>();
+            List<Map<String, Object>> machineLinks = new ArrayList<>();
+            List<Map<String, Object>> supplierLinks = new ArrayList<>();
+            List<Map<String, Object>> productLinks = new ArrayList<>();
+            List<Map<String, Object>> customerLinks = new ArrayList<>();
+            List<Map<String, Object>> warehouseLinks = new ArrayList<>();
+            List<Map<String, Object>> batchMachineLinks = new ArrayList<>();
+            List<Map<String, Object>> batchSupplierLinks = new ArrayList<>();
+            List<Map<String, Object>> batchProductLinks = new ArrayList<>();
+            List<Map<String, Object>> batchCustomerLinks = new ArrayList<>();
+            List<Map<String, Object>> batchWarehouseLinks = new ArrayList<>();
+
             for (CanonicalEvidence ev : active) {
                 String externalId = ev.getExternalId();
                 if (externalId == null || externalId.isBlank()) {
                     skipped++;
                     continue;
                 }
-                // Evidence node
-                session.executeWrite(tx -> {
-                    Map<String, Object> params = Map.of(
-                            "orgId", orgId,
-                            "stableId", externalId.trim(),
-                            "title", ev.getTitle() != null ? ev.getTitle() : "",
-                            "sourceType", ev.getSourceType() != null ? ev.getSourceType() : "",
-                            "status", ev.getStatus() != null ? ev.getStatus() : "",
-                            "sourceCreatedAt", ev.getSourceCreatedAt() != null ? ev.getSourceCreatedAt().toString() : "",
-                            "sourceUpdatedAt", ev.getSourceUpdatedAt() != null ? ev.getSourceUpdatedAt().toString() : ""
-                    );
-                    tx.run("""
-                            MERGE (e:Evidence {orgId: $orgId, stableId: $stableId})
-                            SET e.title = $title, e.sourceType = $sourceType, e.status = $status,
-                                e.sourceCreatedAt = $sourceCreatedAt, e.sourceUpdatedAt = $sourceUpdatedAt
-                            """, params);
-                    return null;
-                });
+                String trimmedExt = externalId.trim();
+                evidenceItems.add(Map.of(
+                        "stableId", trimmedExt,
+                        "title", ev.getTitle() != null ? ev.getTitle() : "",
+                        "sourceType", ev.getSourceType() != null ? ev.getSourceType() : "",
+                        "status", ev.getStatus() != null ? ev.getStatus() : "",
+                        "sourceCreatedAt", ev.getSourceCreatedAt() != null ? ev.getSourceCreatedAt().toString() : "",
+                        "sourceUpdatedAt", ev.getSourceUpdatedAt() != null ? ev.getSourceUpdatedAt().toString() : ""
+                ));
 
-                // Incident -> Evidence HAS_EVIDENCE (Phase 3, tenant-safe, idempotent)
                 if (ev.getIncident() != null && ev.getIncident().getId() != null) {
                     String incStable = String.valueOf(ev.getIncident().getId());
-                    // Tenant isolation: incident org must match projection org
                     Long incOrgId = null;
                     try {
                         if (ev.getIncident().getOrganisation() != null) incOrgId = ev.getIncident().getOrganisation().getOrgId();
                     } catch (Exception ignored) {}
                     if (incOrgId == null || incOrgId.equals(orgId)) {
-                        session.executeWrite(tx -> {
-                            tx.run("""
-                                    MATCH (i:Incident {orgId: $orgId, stableId: $incidentId})
-                                    MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                    MERGE (i)-[:HAS_EVIDENCE]->(e)
-                                    """, Map.of("orgId", orgId, "incidentId", incStable, "externalId", externalId.trim()));
-                            return null;
-                        });
-                        relationships++;
+                        incidentLinks.add(Map.of("incidentId", incStable, "externalId", trimmedExt));
                     }
                 }
 
-                // Case node + BELONGS_TO
                 String caseId = ev.getCaseId();
                 if (caseId != null && !caseId.isBlank()) {
                     String cId = caseId.trim();
                     seenCases.add(cId);
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (c:Case {orgId: $orgId, stableId: $caseId})",
-                                Map.of("orgId", orgId, "caseId", cId));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (c:Case {orgId: $orgId, stableId: $caseId})
-                                MERGE (e)-[:BELONGS_TO]->(c)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "caseId", cId));
-                        return null;
-                    });
-                    relationships++;
+                    caseItems.add(Map.of("caseId", cId, "externalId", trimmedExt));
                 }
 
-                // Actor node + CREATED_BY
                 String actorId = ev.getActorId();
                 if (actorId != null && !actorId.isBlank()) {
                     String aId = actorId.trim();
                     seenActors.add(aId);
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (a:Actor {orgId: $orgId, stableId: $actorId})",
-                                Map.of("orgId", orgId, "actorId", aId));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (a:Actor {orgId: $orgId, stableId: $actorId})
-                                MERGE (e)-[:CREATED_BY]->(a)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "actorId", aId));
-                        return null;
-                    });
-                    relationships++;
+                    actorItems.add(Map.of("actorId", aId, "externalId", trimmedExt));
                 }
 
-                // Parent Evidence DERIVED_FROM
                 String parentId = ev.getParentId();
                 if (parentId != null && !parentId.isBlank()) {
                     String pId = parentId.trim();
-                    // Only create if parentId not blank and not self
-                    if (!pId.equals(externalId.trim())) {
-                        session.executeWrite(tx -> {
-                            // Ensure parent node exists (may not yet be canonical, but MERGE creates placeholder)
-                            tx.run("MERGE (p:Evidence {orgId: $orgId, stableId: $parentId})",
-                                    Map.of("orgId", orgId, "parentId", pId));
-                            tx.run("""
-                                    MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                    MATCH (p:Evidence {orgId: $orgId, stableId: $parentId})
-                                    MERGE (e)-[:DERIVED_FROM]->(p)
-                                    """, Map.of("orgId", orgId, "externalId", externalId.trim(), "parentId", pId));
-                            return null;
-                        });
-                        relationships++;
+                    if (!pId.equals(trimmedExt)) {
+                        parentLinks.add(Map.of("parentId", pId, "externalId", trimmedExt));
                     }
                 }
 
-                // Entity node projection and multi-hop relationships (REFERENCES, ASSOCIATED_WITH)
+                // Multi-hop entity references
                 String evBatch = null;
                 String evMachine = null;
                 String evSupplier = null;
@@ -362,151 +325,23 @@ public class GraphProjectionService {
                     } catch (Exception ignored) {}
                 }
 
-                final String fEvBatch = evBatch;
-                if (fEvBatch != null) {
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (b:Batch {orgId: $orgId, stableId: $id}) SET b.title = $id, b.name = $id", Map.of("orgId", orgId, "id", fEvBatch));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (b:Batch {orgId: $orgId, stableId: $id})
-                                MERGE (e)-[:REFERENCES]->(b)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "id", fEvBatch));
-                        return null;
-                    });
-                    relationships++;
-                }
+                if (evBatch != null) batchLinks.add(Map.of("id", evBatch, "externalId", trimmedExt));
+                if (evMachine != null) machineLinks.add(Map.of("id", evMachine, "externalId", trimmedExt));
+                if (evSupplier != null) supplierLinks.add(Map.of("id", evSupplier, "externalId", trimmedExt));
+                if (evProduct != null) productLinks.add(Map.of("id", evProduct, "externalId", trimmedExt));
+                if (evCustomer != null) customerLinks.add(Map.of("id", evCustomer, "externalId", trimmedExt));
+                if (evWarehouse != null) warehouseLinks.add(Map.of("id", evWarehouse, "externalId", trimmedExt));
 
-                final String fEvMachine = evMachine;
-                if (fEvMachine != null) {
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (m:Machine {orgId: $orgId, stableId: $id}) SET m.title = $id, m.name = $id", Map.of("orgId", orgId, "id", fEvMachine));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (m:Machine {orgId: $orgId, stableId: $id})
-                                MERGE (e)-[:REFERENCES]->(m)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "id", fEvMachine));
-                        return null;
-                    });
-                    relationships++;
-                }
-
-                final String fEvSupplier = evSupplier;
-                if (fEvSupplier != null) {
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (s:Supplier {orgId: $orgId, stableId: $id}) SET s.title = $id, s.name = $id", Map.of("orgId", orgId, "id", fEvSupplier));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (s:Supplier {orgId: $orgId, stableId: $id})
-                                MERGE (e)-[:REFERENCES]->(s)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "id", fEvSupplier));
-                        return null;
-                    });
-                    relationships++;
-                }
-
-                final String fEvProduct = evProduct;
-                if (fEvProduct != null) {
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (p:Product {orgId: $orgId, stableId: $id}) SET p.title = $id, p.name = $id", Map.of("orgId", orgId, "id", fEvProduct));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (p:Product {orgId: $orgId, stableId: $id})
-                                MERGE (e)-[:REFERENCES]->(p)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "id", fEvProduct));
-                        return null;
-                    });
-                    relationships++;
-                }
-
-                final String fEvCustomer = evCustomer;
-                if (fEvCustomer != null) {
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (c:Customer {orgId: $orgId, stableId: $id}) SET c.title = $id, c.name = $id", Map.of("orgId", orgId, "id", fEvCustomer));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (c:Customer {orgId: $orgId, stableId: $id})
-                                MERGE (e)-[:REFERENCES]->(c)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "id", fEvCustomer));
-                        return null;
-                    });
-                    relationships++;
-                }
-
-                final String fEvWarehouse = evWarehouse;
-                if (fEvWarehouse != null) {
-                    session.executeWrite(tx -> {
-                        tx.run("MERGE (w:Warehouse {orgId: $orgId, stableId: $id}) SET w.title = $id, w.name = $id", Map.of("orgId", orgId, "id", fEvWarehouse));
-                        tx.run("""
-                                MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                                MATCH (w:Warehouse {orgId: $orgId, stableId: $id})
-                                MERGE (e)-[:REFERENCES]->(w)
-                                """, Map.of("orgId", orgId, "externalId", externalId.trim(), "id", fEvWarehouse));
-                        return null;
-                    });
-                    relationships++;
-                }
-
-                // Batch -> Entity ASSOCIATED_WITH
-                if (fEvBatch != null) {
-                    if (fEvMachine != null) {
-                        session.executeWrite(tx -> {
-                            tx.run("""
-                                    MATCH (b:Batch {orgId: $orgId, stableId: $bId})
-                                    MATCH (m:Machine {orgId: $orgId, stableId: $mId})
-                                    MERGE (b)-[:ASSOCIATED_WITH]->(m)
-                                    """, Map.of("orgId", orgId, "bId", fEvBatch, "mId", fEvMachine));
-                            return null;
-                        });
-                        relationships++;
-                    }
-                    if (fEvSupplier != null) {
-                        session.executeWrite(tx -> {
-                            tx.run("""
-                                    MATCH (b:Batch {orgId: $orgId, stableId: $bId})
-                                    MATCH (s:Supplier {orgId: $orgId, stableId: $sId})
-                                    MERGE (b)-[:ASSOCIATED_WITH]->(s)
-                                    """, Map.of("orgId", orgId, "bId", fEvBatch, "sId", fEvSupplier));
-                            return null;
-                        });
-                        relationships++;
-                    }
-                    if (fEvProduct != null) {
-                        session.executeWrite(tx -> {
-                            tx.run("""
-                                    MATCH (b:Batch {orgId: $orgId, stableId: $bId})
-                                    MATCH (p:Product {orgId: $orgId, stableId: $pId})
-                                    MERGE (b)-[:ASSOCIATED_WITH]->(p)
-                                    """, Map.of("orgId", orgId, "bId", fEvBatch, "pId", fEvProduct));
-                            return null;
-                        });
-                        relationships++;
-                    }
-                    if (fEvCustomer != null) {
-                        session.executeWrite(tx -> {
-                            tx.run("""
-                                    MATCH (b:Batch {orgId: $orgId, stableId: $bId})
-                                    MATCH (c:Customer {orgId: $orgId, stableId: $cId})
-                                    MERGE (b)-[:ASSOCIATED_WITH]->(c)
-                                    """, Map.of("orgId", orgId, "bId", fEvBatch, "cId", fEvCustomer));
-                            return null;
-                        });
-                        relationships++;
-                    }
-                    if (fEvWarehouse != null) {
-                        session.executeWrite(tx -> {
-                            tx.run("""
-                                    MATCH (b:Batch {orgId: $orgId, stableId: $bId})
-                                    MATCH (w:Warehouse {orgId: $orgId, stableId: $wId})
-                                    MERGE (b)-[:ASSOCIATED_WITH]->(w)
-                                    """, Map.of("orgId", orgId, "bId", fEvBatch, "wId", fEvWarehouse));
-                            return null;
-                        });
-                        relationships++;
-                    }
+                if (evBatch != null) {
+                    if (evMachine != null) batchMachineLinks.add(Map.of("bId", evBatch, "mId", evMachine));
+                    if (evSupplier != null) batchSupplierLinks.add(Map.of("bId", evBatch, "sId", evSupplier));
+                    if (evProduct != null) batchProductLinks.add(Map.of("bId", evBatch, "pId", evProduct));
+                    if (evCustomer != null) batchCustomerLinks.add(Map.of("bId", evBatch, "cId", evCustomer));
+                    if (evWarehouse != null) batchWarehouseLinks.add(Map.of("bId", evBatch, "wId", evWarehouse));
                 }
             }
 
-            // Explicit investigation links are PostgreSQL associations, but also become graph edges.
+            // Explicit investigation links
             for (InvestigationEvidence link : explicitLinks) {
                 if (link.getInvestigation() == null || link.getInvestigation().getId() == null
                         || link.getCanonicalEvidence() == null || link.getCanonicalEvidence().getExternalId() == null
@@ -515,16 +350,160 @@ public class GraphProjectionService {
                 Long evidenceOrgId = link.getCanonicalEvidence().getOrganisation() != null
                         ? link.getCanonicalEvidence().getOrganisation().getOrgId() : null;
                 if ((linkOrgId != null && !orgId.equals(linkOrgId)) || (evidenceOrgId != null && !orgId.equals(evidenceOrgId))) continue;
-                session.executeWrite(tx -> {
-                    tx.run("""
-                            MATCH (i:Incident {orgId: $orgId, stableId: $incidentId})
-                            MATCH (e:Evidence {orgId: $orgId, stableId: $externalId})
-                            MERGE (i)-[:HAS_EVIDENCE]->(e)
-                            """, Map.of("orgId", orgId, "incidentId", String.valueOf(link.getInvestigation().getId()), "externalId", link.getCanonicalEvidence().getExternalId().trim()));
-                    return null;
-                });
-                relationships++;
+                incidentLinks.add(Map.of("incidentId", String.valueOf(link.getInvestigation().getId()), "externalId", link.getCanonicalEvidence().getExternalId().trim()));
             }
+
+            // Execute all projections in batch UNWIND statements inside a single transaction
+            session.executeWrite(tx -> {
+                if (!evidenceItems.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (e:Evidence {orgId: $orgId, stableId: item.stableId})
+                            SET e.title = item.title, e.sourceType = item.sourceType, e.status = item.status,
+                                e.sourceCreatedAt = item.sourceCreatedAt, e.sourceUpdatedAt = item.sourceUpdatedAt
+                            """, Map.of("orgId", orgId, "batch", evidenceItems));
+                }
+                if (!caseItems.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (c:Case {orgId: $orgId, stableId: item.caseId})
+                            WITH c, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:BELONGS_TO]->(c)
+                            """, Map.of("orgId", orgId, "batch", caseItems));
+                }
+                if (!actorItems.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (a:Actor {orgId: $orgId, stableId: item.actorId})
+                            WITH a, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:CREATED_BY]->(a)
+                            """, Map.of("orgId", orgId, "batch", actorItems));
+                }
+                if (!parentLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (p:Evidence {orgId: $orgId, stableId: item.parentId})
+                            WITH p, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:DERIVED_FROM]->(p)
+                            """, Map.of("orgId", orgId, "batch", parentLinks));
+                }
+                if (!batchLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (b:Batch {orgId: $orgId, stableId: item.id})
+                            SET b.title = item.id, b.name = item.id
+                            WITH b, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:REFERENCES]->(b)
+                            """, Map.of("orgId", orgId, "batch", batchLinks));
+                }
+                if (!machineLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (m:Machine {orgId: $orgId, stableId: item.id})
+                            SET m.title = item.id, m.name = item.id
+                            WITH m, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:REFERENCES]->(m)
+                            """, Map.of("orgId", orgId, "batch", machineLinks));
+                }
+                if (!supplierLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (s:Supplier {orgId: $orgId, stableId: item.id})
+                            SET s.title = item.id, s.name = item.id
+                            WITH s, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:REFERENCES]->(s)
+                            """, Map.of("orgId", orgId, "batch", supplierLinks));
+                }
+                if (!productLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (p:Product {orgId: $orgId, stableId: item.id})
+                            SET p.title = item.id, p.name = item.id
+                            WITH p, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:REFERENCES]->(p)
+                            """, Map.of("orgId", orgId, "batch", productLinks));
+                }
+                if (!customerLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (c:Customer {orgId: $orgId, stableId: item.id})
+                            SET c.title = item.id, c.name = item.id
+                            WITH c, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:REFERENCES]->(c)
+                            """, Map.of("orgId", orgId, "batch", customerLinks));
+                }
+                if (!warehouseLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MERGE (w:Warehouse {orgId: $orgId, stableId: item.id})
+                            SET w.title = item.id, w.name = item.id
+                            WITH w, item
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (e)-[:REFERENCES]->(w)
+                            """, Map.of("orgId", orgId, "batch", warehouseLinks));
+                }
+                if (!batchMachineLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MATCH (b:Batch {orgId: $orgId, stableId: item.bId})
+                            MATCH (m:Machine {orgId: $orgId, stableId: item.mId})
+                            MERGE (b)-[:ASSOCIATED_WITH]->(m)
+                            """, Map.of("orgId", orgId, "batch", batchMachineLinks));
+                }
+                if (!batchSupplierLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MATCH (b:Batch {orgId: $orgId, stableId: item.bId})
+                            MATCH (s:Supplier {orgId: $orgId, stableId: item.sId})
+                            MERGE (b)-[:ASSOCIATED_WITH]->(s)
+                            """, Map.of("orgId", orgId, "batch", batchSupplierLinks));
+                }
+                if (!batchProductLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MATCH (b:Batch {orgId: $orgId, stableId: item.bId})
+                            MATCH (p:Product {orgId: $orgId, stableId: item.pId})
+                            MERGE (b)-[:ASSOCIATED_WITH]->(p)
+                            """, Map.of("orgId", orgId, "batch", batchProductLinks));
+                }
+                if (!batchCustomerLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MATCH (b:Batch {orgId: $orgId, stableId: item.bId})
+                            MATCH (c:Customer {orgId: $orgId, stableId: item.cId})
+                            MERGE (b)-[:ASSOCIATED_WITH]->(c)
+                            """, Map.of("orgId", orgId, "batch", batchCustomerLinks));
+                }
+                if (!batchWarehouseLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MATCH (b:Batch {orgId: $orgId, stableId: item.bId})
+                            MATCH (w:Warehouse {orgId: $orgId, stableId: item.wId})
+                            MERGE (b)-[:ASSOCIATED_WITH]->(w)
+                            """, Map.of("orgId", orgId, "batch", batchWarehouseLinks));
+                }
+                if (!incidentLinks.isEmpty()) {
+                    tx.run("""
+                            UNWIND $batch AS item
+                            MATCH (i:Incident {orgId: $orgId, stableId: item.incidentId})
+                            MATCH (e:Evidence {orgId: $orgId, stableId: item.externalId})
+                            MERGE (i)-[:HAS_EVIDENCE]->(e)
+                            """, Map.of("orgId", orgId, "batch", incidentLinks));
+                }
+                return null;
+            });
+            relationships += (caseItems.size() + actorItems.size() + parentLinks.size() + batchLinks.size() +
+                    machineLinks.size() + supplierLinks.size() + productLinks.size() + customerLinks.size() +
+                    warehouseLinks.size() + batchMachineLinks.size() + batchSupplierLinks.size() +
+                    batchProductLinks.size() + batchCustomerLinks.size() + batchWarehouseLinks.size() + incidentLinks.size());
         }
 
         return GraphProjectionResult.builder()

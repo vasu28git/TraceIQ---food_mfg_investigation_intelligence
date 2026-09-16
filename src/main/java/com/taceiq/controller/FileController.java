@@ -1,6 +1,8 @@
 package com.taceiq.controller;
 
 import com.taceiq.entity.File;
+import com.taceiq.graph.service.GraphProjectionService;
+import com.taceiq.ingestion.SourceRecordIngestionService;
 import com.taceiq.security.AuthorizationService;
 import com.taceiq.service.FileService;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,8 @@ public class FileController {
 
     private final FileService fileService;
     private final AuthorizationService authorizationService;
+    private final SourceRecordIngestionService ingestionService;
+    private final GraphProjectionService projectionService;
 
     @PostMapping
     public ResponseEntity<File> createFile(@RequestBody File file) {
@@ -94,5 +98,23 @@ public class FileController {
         authorizationService.requireFileDelete();
         fileService.deleteFile(id, orgId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/reingest")
+    public ResponseEntity<Map<String, Object>> reingestAll() {
+        Long orgId = authorizationService.getCurrentOrgId();
+        authorizationService.requireFileUpdate();
+        List<File> files = fileService.getFilesByOrganisation(orgId, orgId);
+        int processed = 0;
+        for (File f : files) {
+            try {
+                ingestionService.ingestFile(orgId, f.getId(), null);
+                processed++;
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        var proj = projectionService.projectForOrganisation(orgId);
+        return ResponseEntity.ok(Map.of("processedFiles", processed, "projection", proj));
     }
 }

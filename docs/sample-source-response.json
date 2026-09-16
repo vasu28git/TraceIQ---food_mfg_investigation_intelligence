@@ -1,0 +1,172 @@
+{
+  "_meta": {
+    "note": "ANONYMIZED REPRESENTATIVE SAMPLE – PROPOSED contract for first integration. NOT production data. Field names are PROPOSED based on generic Evidence Vault REST pattern; vendor confirmation required. Secrets redacted.",
+    "source": "Generic Enterprise Evidence Vault (PROPOSED – type API)",
+    "integrationType": "API",
+    "purpose": "Ingest investigation evidence records and their case/actor relationships for traceability and timeline analysis (aligns with EVIDENCE_* and TRACEABILITY_* permissions).",
+    "anonymized": true,
+    "createdFor": "TaceIQ Phase 1 Step 3 – sample contract only, no ingestion code",
+    "status": "PROPOSED – requires vendor review"
+  },
+  "authentication": {
+    "mechanism": "PROPOSED – Bearer token (alternative API-Key also UNKNOWN – to be confirmed)",
+    "headerExample": "Authorization: Bearer ***REDACTED***",
+    "alternativeHeaderExample": "X-Api-Key: ***REDACTED*** (UNKNOWN – if vendor uses API key)",
+    "whatMustNotBePersistedAsPlaintext": [
+      "Authorization Bearer token",
+      "X-Api-Key",
+      "refresh_token if OAuth flow is used (UNKNOWN)"
+    ],
+    "tokenPlacement": "Header only – must NOT be stored in Integration.configuration as plaintext in production; current Integration.configuration TEXT is CONFIRMED plaintext – UNKNOWN vault/encryption decision (see docs/phase1-data-contract.md B2)"
+  },
+  "endpoint": {
+    "baseUrl": "https://evidence.example.internal (REDACTED – UNKNOWN actual host)",
+    "path": "/api/v1/evidence",
+    "fullExample": "https://evidence.example.internal/api/v1/evidence",
+    "method": "GET",
+    "relatedEndpoints": {
+      "detail": "GET /api/v1/evidence/{evidenceId} (PROPOSED – UNKNOWN if source supports detail fetch)",
+      "cases": "GET /api/v1/cases (PROPOSED – to resolve case relationships if not embedded)"
+    }
+  },
+  "request": {
+    "requiredParameters": {
+      "limit": "integer – page size (example 2 in sample)"
+    },
+    "pagination": {
+      "strategy": "PROPOSED – cursor-based (nextCursor opaque string); UNKNOWN if source uses offset/page instead",
+      "requestParams": {
+        "limit": 2,
+        "cursor": "eyJpZCI6ImV2XzAwMiJ9 (example – base64 cursor, REDACTED)"
+      },
+      "responseEnvelope": "data[] + pagination { nextCursor, hasMore, totalCount? } (see response.envelope)"
+    },
+    "incrementalSync": {
+      "strategy": "PROPOSED – query param updatedSince=ISO8601 (e.g., ?updatedSince=2026-09-03T10:00:00Z); UNKNOWN if source supports webhook or change feed",
+      "example": "?limit=100&cursor=&updatedSince=2026-09-03T00:00:00Z",
+      "changeMarker": "updatedAt field per record (PROPOSED – see records[].updatedAt)"
+    },
+    "filtering": {
+      "example": "?caseId=CASE-1001 (PROPOSED – UNKNOWN actual filter fields)"
+    }
+  },
+  "response": {
+    "envelope": {
+      "type": "object",
+      "fields": {
+        "data": "array of evidence records (see records)",
+        "pagination": {
+          "nextCursor": "string|null – opaque cursor for next page, null if last page",
+          "hasMore": "boolean",
+          "totalCount": "integer|null – UNKNOWN if source returns total"
+        }
+      },
+      "example": {
+        "data": "[ ...2 records... ]",
+        "pagination": {
+          "nextCursor": "eyJpZCI6ImV2XzAwMiJ9",
+          "hasMore": true,
+          "totalCount": null
+        }
+      }
+    },
+    "records": [
+      {
+        "evidenceId": "ev_001",
+        "caseId": "CASE-1001",
+        "title": "ANONYMIZED – Network log batch 1",
+        "sourceType": "FILE",
+        "status": "READY",
+        "createdAt": "2026-09-01T08:12:33.000Z",
+        "updatedAt": "2026-09-03T10:15:00.000Z",
+        "actor": {
+          "actorId": "actor_42",
+          "role": "SYSTEM"
+        },
+        "relationships": {
+          "caseId_ref": "CASE-1001",
+          "actorId_ref": "actor_42",
+          "parentEvidenceId": null
+        },
+        "attributes": {
+          "size": 2048,
+          "contentType": "application/json",
+          "storageRef": "REDACTED – internal path",
+          "tags": ["ANONYMIZED"]
+        }
+      },
+      {
+        "evidenceId": "ev_002",
+        "caseId": "CASE-1001",
+        "title": "ANONYMIZED – Endpoint snapshot",
+        "sourceType": "API",
+        "status": "READY",
+        "createdAt": "2026-09-02T09:00:00.000Z",
+        "updatedAt": "2026-09-03T10:16:12.000Z",
+        "actor": {
+          "actorId": "actor_07",
+          "role": "ANALYST"
+        },
+        "relationships": {
+          "caseId_ref": "CASE-1001",
+          "actorId_ref": "actor_07",
+          "parentEvidenceId": "ev_001"
+        },
+        "attributes": {
+          "size": 5120,
+          "contentType": "application/json",
+          "storageRef": "REDACTED",
+          "tags": ["ANONYMIZED"]
+        }
+      }
+    ],
+    "recordStructure": {
+      "externalId": "evidenceId (string, stable, required)",
+      "importantFields": ["evidenceId", "caseId", "title", "sourceType", "status", "createdAt", "updatedAt", "actor.actorId"],
+      "relationshipsToOtherObjects": [
+        "caseId -> Case (many-to-one, PROPOSED – Case object UNKNOWN if separate endpoint)",
+        "actor.actorId -> Actor (many-to-one, PROPOSED)",
+        "parentEvidenceId -> Evidence (self-reference, optional, UNKNOWN if source supports hierarchy)"
+      ],
+      "requiredFields": ["evidenceId", "caseId", "createdAt"],
+      "optionalFields": ["title", "status", "actor", "parentEvidenceId", "attributes.size/contentType/storageRef/tags"],
+      "timestamps": {
+        "createdAt": "ISO8601 UTC – CONFIRMED in sample as 2026-09-01T08:12:33.000Z (PROPOSED format, vendor to confirm)",
+        "updatedAt": "ISO8601 UTC – used as incremental change marker (PROPOSED)"
+      },
+      "deleteTombstoneBehavior": "UNKNOWN – no delete flag in sample; PROPOSED options: deletedAt or status=DELETED or separate /deleted endpoint – requires vendor confirmation"
+    }
+  },
+  "errorHandling": {
+    "examples": [
+      {
+        "status": 401,
+        "body": { "error": "Unauthorized", "message": "Invalid or expired token" },
+        "retryable": false,
+        "note": "PROPOSED – typical for Bearer; UNKNOWN actual shape"
+      },
+      {
+        "status": 429,
+        "headers": { "Retry-After": "60" },
+        "body": { "error": "Too Many Requests", "message": "Rate limit exceeded" },
+        "retryable": true,
+        "note": "PROPOSED – UNKNOWN actual limit headers"
+      },
+      {
+        "status": 400,
+        "body": { "error": "Bad Request", "message": "Invalid cursor" },
+        "retryable": false,
+        "note": "PROPOSED validation error"
+      },
+      {
+        "status": 500,
+        "body": { "error": "Internal Server Error", "message": "Upstream failure" },
+        "retryable": true,
+        "note": "PROPOSED server error"
+      }
+    ],
+    "rateLimits": "UNKNOWN – no header documented; PROPOSED assume Retry-After + 429",
+    "timeoutBehavior": "UNKNOWN – assume 10s connect / 30s read, retryable on timeout (PROPOSED)",
+    "expectedDataVolume": "UNKNOWN – sample 2 records; PROPOSED ingestion must handle 1k–100k records per sync (vendor to confirm)"
+  }
+}

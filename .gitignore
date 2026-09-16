@@ -1,6 +1,6 @@
 HELP.md
 target/
-.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 
@@ -31,3 +31,49 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Environment ###
+.env
+.env.*
+**/application-local.properties
+scratch/
+logs/
+*.log
+
+### Uploads / user data ###
+uploads/
+uploads/**
+
+### Build artifacts ###
+BOOT-INF/
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+frontend/node_modules/
+frontend/dist/
+
+### Compiled classes (never commit) ###
+*.class
+
+### E2E / debug artifacts (disposable) ###
+auth_header*.txt
+token*.txt
+smoke_login.json
+login_*.json
+*_create.json
+check*.json
+inv*.json
+link*.json
+comp*.json
+dec.json
+final*.json
+curl_*.json
+report_*.txt
+report_*.bin
+gemini_*.json
+
+### PowerShell debug scripts ###
+*.ps1
+
+# Keep source - never ignore src/
+!src/**
+!frontend/src/**

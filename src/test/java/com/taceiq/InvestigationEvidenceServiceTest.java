@@ -222,7 +222,8 @@ public class InvestigationEvidenceServiceTest {
         InvestigationEvidenceResponse response = service.saveAssessment(100L, "ev_001", request);
 
         assertEquals("REVIEWED", response.getReviewStatus());
-        assertEquals("RELEVANT", response.getRelevance());
+        assertEquals("DIRECT", response.getRelevance());
+        assertEquals("RELEVANT", response.getAssessmentRelevance());
         assertEquals("HIGH", response.getImportance());
         assertEquals("SUPPORTS_INVESTIGATION", response.getAssessment());
         assertEquals(10L, response.getReviewedByUserId());

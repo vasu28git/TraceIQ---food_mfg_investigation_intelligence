@@ -84,13 +84,23 @@ export interface InvestigationEvidence {
   associationType?: string | null
   matchExplanations?: EvidenceMatchExplanation[]
   normalizedPayload?: string | null
-  reviewStatus?: 'PENDING_REVIEW' | 'REVIEWED' | null
-  relevance?: 'RELEVANT' | 'NOT_RELEVANT' | null
+  distance?: number | null
+  discoveryMethod?: string | null
+  discoveryPath?: string[] | null
+  discoveryReason?: string | null
+  reviewStatus?: 'PENDING_REVIEW' | 'REVIEWED' | 'REJECTED' | null
+  relevance?: 'DIRECT' | 'RELATED' | 'SUPPORTING' | 'RELEVANT' | 'NOT_RELEVANT' | string | null
+  assessmentRelevance?: 'RELEVANT' | 'NOT_RELEVANT' | null
   importance?: 'HIGH' | 'MEDIUM' | 'LOW' | null
   assessment?: 'SUPPORTS_INVESTIGATION' | 'CONTRADICTS_INVESTIGATION' | 'CONTEXT_ONLY' | 'INCONCLUSIVE' | 'NOT_ASSESSED' | null
   investigatorNotes?: string | null
   reviewedByUserId?: number | null
   reviewedAt?: string | null
+}
+
+export interface ReviewEvidenceRequest {
+  reviewStatus: 'PENDING_REVIEW' | 'REVIEWED' | 'REJECTED'
+  investigatorNotes?: string | null
 }
 
 export interface InvestigationEvidenceAssessmentRequest {

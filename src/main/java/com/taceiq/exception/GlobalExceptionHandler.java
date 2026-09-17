@@ -42,8 +42,11 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", "Bad Request", "message", msg));
     }
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleGeneric(Exception ex) {
+        log.error("Unhandled exception in GlobalExceptionHandler: ", ex);
         String msg = ex.getMessage() != null ? ex.getMessage() : "Internal error";
         if (msg.toLowerCase().contains("password")) {
             msg = "Invalid request";

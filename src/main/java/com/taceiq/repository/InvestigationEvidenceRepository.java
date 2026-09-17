@@ -17,6 +17,7 @@ public interface InvestigationEvidenceRepository extends JpaRepository<Investiga
 
     Optional<InvestigationEvidence> findByOrganisationOrgIdAndInvestigationIdAndCanonicalEvidenceExternalId(Long orgId, Long investigationId, String externalId);
 
+    @EntityGraph(attributePaths = {"canonicalEvidence", "canonicalEvidence.organisation"})
     Page<InvestigationEvidence> findByOrganisationOrgIdAndInvestigationId(Long orgId, Long investigationId, Pageable pageable);
 
     long countByOrganisationOrgIdAndInvestigationId(Long orgId, Long investigationId);

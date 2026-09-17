@@ -28,6 +28,11 @@ public class InvestigationEvidenceResponse {
     private Long size;
     private String associationType;
     private String normalizedPayload;
+    private Integer distance;
+    private String discoveryMethod;
+    private List<String> discoveryPath;
+    private String discoveryReason;
+    private String assessmentRelevance;
     private List<EvidenceMatchExplanation> matchExplanations;
     private String reviewStatus;
     private String relevance;

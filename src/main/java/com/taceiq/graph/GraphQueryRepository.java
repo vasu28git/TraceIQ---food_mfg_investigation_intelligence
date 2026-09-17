@@ -1,5 +1,6 @@
 package com.taceiq.graph;
 
+import com.taceiq.dto.EvidenceDiscoveryResult;
 import com.taceiq.graph.config.Neo4jConfig;
 import com.taceiq.graph.dto.GraphEvidenceResponse;
 import com.taceiq.graph.dto.TraceabilityDtos.CaseTraceabilityResponse;
@@ -108,6 +109,7 @@ public class GraphQueryRepository {
                 MATCH path = (i)-[:HAS_EVIDENCE|BELONGS_TO|CREATED_BY|DERIVED_FROM|TARGETS|REFERENCES|ASSOCIATED_WITH*0..%d]-(n)
                 WHERE all(node IN nodes(path) WHERE node.orgId = $orgId AND (NOT node:Incident OR node = i))
                 RETURN path
+                LIMIT 2000
                 """, depth);
         try (Session s = session()) {
             var result = s.run(cypher, Map.of("orgId", orgId, "stableId", String.valueOf(incidentId)), txConfig());
@@ -119,7 +121,7 @@ public class GraphQueryRepository {
             for (org.neo4j.driver.Record rec : result.list()) {
                 var path = rec.get("path").asPath();
                 for (var node : path.nodes()) {
-                    String label = node.labels().iterator().next();
+                    String label = firstLabel(node.labels());
                     String sid = node.get("stableId").asString(null);
                     Object orgObj = node.get("orgId").asObject();
                     String orgStr = orgObj != null ? orgObj.toString() : null;
@@ -157,8 +159,8 @@ public class GraphQueryRepository {
                     var sourceNode = isForward ? start : end;
                     var targetNode = isForward ? end : start;
 
-                    String fromLabel = sourceNode.labels().iterator().next();
-                    String toLabel = targetNode.labels().iterator().next();
+                    String fromLabel = firstLabel(sourceNode.labels());
+                    String toLabel = firstLabel(targetNode.labels());
                     String fromId = sourceNode.get("stableId").asString(null);
                     String toId = targetNode.get("stableId").asString(null);
                     if (fromId == null || toId == null) continue;
@@ -181,6 +183,12 @@ public class GraphQueryRepository {
                     .depth(depth)
                     .build();
         }
+    }
+
+    private static String firstLabel(Iterable<String> labels) {
+        if (labels == null) return "Node";
+        var iterator = labels.iterator();
+        return iterator.hasNext() ? iterator.next() : "Node";
     }
 
     public CaseTraceabilityResponse traceCase(Long orgId, String caseId, int depth) {
@@ -257,4 +265,109 @@ public class GraphQueryRepository {
                     .build();
         }
     }
+
+    public List<EvidenceDiscoveryResult> discoverEvidenceForBatch(Long orgId, String batchRef) {
+        String cypher = """
+                // 1. Direct Batch Evidence
+                MATCH (b:Batch {orgId: $orgId, stableId: $batchRef})<-[r:REFERENCES]-(e:Evidence {orgId: $orgId})
+                WHERE NOT e.stableId STARTS WITH 'MANUAL_FILE_'
+                RETURN e.stableId AS evidenceStableId,
+                       e.title AS title,
+                       e.sourceType AS sourceType,
+                       1 AS distance,
+                       [b.stableId, e.stableId] AS nodePath,
+                       ['Batch', 'Evidence'] AS labelPath,
+                       ['REFERENCES'] AS relationshipPath,
+                       'DIRECT_BATCH' AS semanticRoute,
+                       b.stableId AS intermediateEntityId,
+                       'Batch' AS intermediateEntityType
+
+                UNION ALL
+
+                // 2. Intermediate Operational Entity Evidence (Machine, Supplier, Warehouse, Product, Customer)
+                MATCH (b:Batch {orgId: $orgId, stableId: $batchRef})-[r1:ASSOCIATED_WITH]->(target)<-[r2:REFERENCES]-(e:Evidence {orgId: $orgId})
+                WHERE target.orgId = $orgId
+                  AND (target:Machine OR target:Supplier OR target:Warehouse OR target:Product OR target:Customer)
+                  AND NOT e.stableId STARTS WITH 'MANUAL_FILE_'
+                  AND NOT (e.sourceType IN ['MES', 'PRODUCTION'] AND NOT EXISTS {
+                    MATCH (e)-[:REFERENCES]->(:Batch {orgId: $orgId, stableId: $batchRef})
+                  })
+                RETURN e.stableId AS evidenceStableId,
+                       e.title AS title,
+                       e.sourceType AS sourceType,
+                       2 AS distance,
+                       [b.stableId, target.stableId, e.stableId] AS nodePath,
+                       ['Batch', labels(target)[0], 'Evidence'] AS labelPath,
+                       ['ASSOCIATED_WITH', 'REFERENCES'] AS relationshipPath,
+                       CASE 
+                         WHEN target:Machine THEN 'MACHINE_ROUTE'
+                         WHEN target:Supplier THEN 'SUPPLIER_ROUTE'
+                         WHEN target:Warehouse THEN 'WAREHOUSE_ROUTE'
+                         WHEN target:Product THEN 'PRODUCT_ROUTE'
+                         WHEN target:Customer THEN 'CUSTOMER_ROUTE'
+                         ELSE 'ENTITY_ROUTE'
+                       END AS semanticRoute,
+                       target.stableId AS intermediateEntityId,
+                       labels(target)[0] AS intermediateEntityType
+
+                UNION ALL
+
+                // 3. Derived Evidence from Direct Batch Evidence
+                MATCH (b:Batch {orgId: $orgId, stableId: $batchRef})<-[:REFERENCES]-(parent:Evidence {orgId: $orgId})<-[r:DERIVED_FROM]-(e:Evidence {orgId: $orgId})
+                WHERE NOT e.stableId STARTS WITH 'MANUAL_FILE_'
+                RETURN e.stableId AS evidenceStableId,
+                       e.title AS title,
+                       e.sourceType AS sourceType,
+                       2 AS distance,
+                       [b.stableId, parent.stableId, e.stableId] AS nodePath,
+                       ['Batch', 'Evidence', 'Evidence'] AS labelPath,
+                       ['REFERENCES', 'DERIVED_FROM'] AS relationshipPath,
+                       'DERIVED_EVIDENCE' AS semanticRoute,
+                       parent.stableId AS intermediateEntityId,
+                       'Evidence' AS intermediateEntityType
+
+                UNION ALL
+
+                // 4. Derived Evidence from Intermediate Entity Evidence
+                MATCH (b:Batch {orgId: $orgId, stableId: $batchRef})-[:ASSOCIATED_WITH]->(target)<-[:REFERENCES]-(parent:Evidence {orgId: $orgId})<-[r:DERIVED_FROM]-(e:Evidence {orgId: $orgId})
+                WHERE target.orgId = $orgId
+                  AND (target:Machine OR target:Supplier OR target:Warehouse OR target:Product OR target:Customer)
+                  AND NOT e.stableId STARTS WITH 'MANUAL_FILE_'
+                  AND NOT (parent.sourceType IN ['MES', 'PRODUCTION'] AND NOT EXISTS {
+                    MATCH (parent)-[:REFERENCES]->(:Batch {orgId: $orgId, stableId: $batchRef})
+                  })
+                RETURN e.stableId AS evidenceStableId,
+                       e.title AS title,
+                       e.sourceType AS sourceType,
+                       3 AS distance,
+                       [b.stableId, target.stableId, parent.stableId, e.stableId] AS nodePath,
+                       ['Batch', labels(target)[0], 'Evidence', 'Evidence'] AS labelPath,
+                       ['ASSOCIATED_WITH', 'REFERENCES', 'DERIVED_FROM'] AS relationshipPath,
+                       'DERIVED_EVIDENCE' AS semanticRoute,
+                       parent.stableId AS intermediateEntityId,
+                       'Evidence' AS intermediateEntityType
+                """;
+
+        try (Session s = session()) {
+            Map<String, Object> params = Map.of("orgId", orgId, "batchRef", batchRef);
+            var result = s.run(cypher, params, txConfig());
+            List<EvidenceDiscoveryResult> list = new ArrayList<>();
+            for (Record r : result.list()) {
+                list.add(EvidenceDiscoveryResult.builder()
+                        .evidenceStableId(r.get("evidenceStableId").asString(null))
+                        .title(r.get("title").asString(null))
+                        .sourceType(r.get("sourceType").asString(null))
+                        .distance(r.get("distance").asInt(1))
+                        .nodePath(r.get("nodePath").asList(org.neo4j.driver.Value::asString))
+                        .labelPath(r.get("labelPath").asList(org.neo4j.driver.Value::asString))
+                        .relationshipPath(r.get("relationshipPath").asList(org.neo4j.driver.Value::asString))
+                        .semanticRoute(r.get("semanticRoute").asString(null))
+                        .intermediateEntityId(r.get("intermediateEntityId").asString(null))
+                        .intermediateEntityType(r.get("intermediateEntityType").asString(null))
+                        .build());
+            }
+            return list;
+        }
+    }
 }
+

@@ -4,6 +4,7 @@ import type {
   Complaint, CreateComplaintRequest, CreateInvestigationFromComplaintRequest,
   InvestigationEvidence, LinkEvidenceRequest,
   InvestigationEvidenceAssessmentRequest,
+  ReviewEvidenceRequest,
   InvestigationFinding, InvestigationFindingRequest,
   InvestigationConclusion, InvestigationConclusionRequest,
   InvestigationAction, InvestigationActionRequest,
@@ -96,13 +97,39 @@ export async function linkEvidence(investigationId: number, payload: LinkEvidenc
   return res.data
 }
 
-export async function listInvestigationEvidence(investigationId: number, page = 0, size = 20, params?: { search?: string; sourceType?: string; status?: string; sort?: string }): Promise<PageResponse<InvestigationEvidence>> {
+export async function listInvestigationEvidence(
+  investigationId: number,
+  page = 0,
+  size = 20,
+  params?: {
+    search?: string;
+    sourceType?: string;
+    status?: string;
+    sort?: string;
+    relevance?: string;
+    reviewStatus?: string;
+  }
+): Promise<PageResponse<InvestigationEvidence>> {
   const query: Record<string, unknown> = { page, size }
   if (params?.search) query.search = params.search
   if (params?.sourceType) query.sourceType = params.sourceType
   if (params?.status) query.status = params.status
   if (params?.sort) query.sort = params.sort
+  if (params?.relevance) query.relevance = params.relevance
+  if (params?.reviewStatus) query.reviewStatus = params.reviewStatus
   const res = await apiClient.get<PageResponse<InvestigationEvidence>>(`/investigations/${investigationId}/evidence`, { params: query })
+  return res.data
+}
+
+export async function reviewInvestigationEvidence(
+  investigationId: number,
+  stableId: string,
+  payload: ReviewEvidenceRequest
+): Promise<InvestigationEvidence> {
+  const res = await apiClient.patch<InvestigationEvidence>(
+    `/investigations/${investigationId}/evidence/${encodeURIComponent(stableId)}/review`,
+    payload
+  )
   return res.data
 }
 

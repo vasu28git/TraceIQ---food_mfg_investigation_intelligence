@@ -9,6 +9,8 @@ import com.taceiq.entity.EvidenceCorrelationProvenance;
 import com.taceiq.entity.Investigation;
 import com.taceiq.entity.InvestigationEvidence;
 import com.taceiq.entity.InvestigationEvidenceAssessment;
+import com.taceiq.dto.EvidenceDiscoveryResult;
+import com.taceiq.dto.ReviewEvidenceRequest;
 import com.taceiq.dto.InvestigationEvidenceAssessmentRequest;
 import com.taceiq.graph.service.GraphReadinessService;
 import com.taceiq.repository.CanonicalEvidenceRepository;
@@ -93,6 +95,13 @@ public class InvestigationEvidenceService {
         this(investigationRepository, canonicalRepo, linkRepository, authorizationService, graphReadinessService, provenanceRepository, sourceRecordRepository, null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private EvidenceRelevanceClassifier relevanceClassifier = new EvidenceRelevanceClassifier();
+
+    public void setRelevanceClassifier(EvidenceRelevanceClassifier relevanceClassifier) {
+        this.relevanceClassifier = relevanceClassifier != null ? relevanceClassifier : new EvidenceRelevanceClassifier();
+    }
+
     private Investigation loadInvestigation(Long investigationId) {
         Long orgId = authorizationService.getCurrentOrgId();
         return investigationRepository.findByIdAndOrganisationOrgId(investigationId, orgId)
@@ -122,16 +131,47 @@ public class InvestigationEvidenceService {
 
     private InvestigationEvidenceResponse withAssessment(InvestigationEvidenceResponse response, Long orgId, Long investigationId, Long evidenceId) {
         InvestigationEvidenceAssessment assessment = findAssessment(orgId, investigationId, evidenceId);
+        return withAssessment(response, assessment);
+    }
+
+    private InvestigationEvidenceResponse withAssessment(InvestigationEvidenceResponse response, InvestigationEvidenceAssessment assessment) {
         if (assessment == null) return response;
-        return response.toBuilder()
-            .reviewStatus(canonicalValue(assessment.getReviewStatus()))
-            .relevance(canonicalValue(assessment.getRelevance()))
-            .importance(canonicalValue(assessment.getImportance()))
-            .assessment(canonicalValue(assessment.getAssessment()))
-                .investigatorNotes(assessment.getInvestigatorNotes())
-                .reviewedByUserId(assessment.getReviewedBy() != null ? assessment.getReviewedBy().getId() : null)
-                .reviewedAt(assessment.getReviewedAt())
-                .build();
+        var builder = response.toBuilder()
+            .assessmentRelevance(canonicalValue(assessment.getRelevance()))
+                .importance(canonicalValue(assessment.getImportance()))
+                .assessment(canonicalValue(assessment.getAssessment()));
+
+        // Authoritative source is investigation_evidence; only backfill if response has no review status
+        if (response.getReviewStatus() == null || "PENDING_REVIEW".equals(response.getReviewStatus())) {
+            if (assessment.getReviewStatus() != null && !"PENDING_REVIEW".equals(assessment.getReviewStatus())) {
+                builder.reviewStatus(canonicalValue(assessment.getReviewStatus()));
+            }
+        }
+        // Graph discovery relevance belongs to investigation_evidence. Legacy assessment
+        // relevance is only a fallback for associations created before graph metadata.
+        if (response.getRelevance() == null) {
+            builder.relevance(responseRelevance(response, assessment.getRelevance()));
+        }
+        if (response.getInvestigatorNotes() == null || response.getInvestigatorNotes().isBlank()) {
+            builder.investigatorNotes(assessment.getInvestigatorNotes());
+        }
+        if (response.getReviewedByUserId() == null && assessment.getReviewedBy() != null) {
+            builder.reviewedByUserId(assessment.getReviewedBy().getId());
+            builder.reviewedAt(assessment.getReviewedAt());
+        }
+        return builder.build();
+    }
+
+    private String responseRelevance(InvestigationEvidenceResponse response, String legacyRelevance) {
+        if (response.getDistance() != null) {
+            if (response.getDistance() == 1) return "DIRECT";
+            if (response.getDistance() == 2) return "RELATED";
+            return "SUPPORTING";
+        }
+        if (legacyRelevance == null) return null;
+        if ("RELEVANT".equalsIgnoreCase(legacyRelevance)) return "RELATED";
+        if ("NOT_RELEVANT".equalsIgnoreCase(legacyRelevance)) return "SUPPORTING";
+        return canonicalValue(legacyRelevance);
     }
 
     @Transactional
@@ -191,6 +231,12 @@ public class InvestigationEvidenceService {
 
     public org.springframework.data.domain.Page<InvestigationEvidenceResponse> listEvidence(Long investigationId, Integer page, Integer size,
                                                                                              String search, String sourceType, String status, String sort) {
+        return listEvidence(investigationId, page, size, search, sourceType, status, null, null, sort);
+    }
+
+    public org.springframework.data.domain.Page<InvestigationEvidenceResponse> listEvidence(Long investigationId, Integer page, Integer size,
+                                                                                             String search, String sourceType, String status,
+                                                                                             String relevance, String reviewStatus, String sort) {
         Long orgId = authorizationService.getCurrentOrgId();
         authorizationService.requireEvidenceGraphAccess();
         // Evidence listing is PostgreSQL-authoritative – do NOT require Neo4j graphReady
@@ -207,7 +253,7 @@ public class InvestigationEvidenceService {
         if (sort != null && !sort.isBlank()) {
             String[] parts = sort.trim().split(",");
             String field = parts[0].trim();
-            Set<String> allowed = Set.of("stableId", "title", "sourceType", "status", "linkedAt");
+            Set<String> allowed = Set.of("stableId", "title", "sourceType", "status", "linkedAt", "distance", "relevance", "reviewStatus");
             if (!allowed.contains(field)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid sort field. Allowed: " + allowed);
             }
@@ -219,33 +265,41 @@ public class InvestigationEvidenceService {
             }
         }
 
-        // Phase 5: Incident-scoped evidence — union of:
-        // 1) canonical_evidence where incident_id = incidentId (direct association via Phase 1)
-        // 2) investigation_evidence join table (explicit links, legacy)
-        // Do not duplicate, preserve both, tenant-safe, do not leak cross-org, do not silently backfill legacy caseId.
-        // Existing DTO reused: InvestigationEvidenceResponse (stableId/title/sourceType/status/linkedAt)
-        // Phase 9: add search/filter
+        // investigation_evidence is authoritative for current association/review state;
+        // legacy incident-stamped canonical rows remain a read-only display fallback.
         String searchLower = search != null && !search.isBlank() ? search.trim().toLowerCase() : null;
         String filterSourceType = sourceType != null && !sourceType.isBlank() ? sourceType.trim() : null;
         String filterStatus = status != null && !status.isBlank() ? status.trim() : null;
+        String filterRelevance = relevance != null && !relevance.isBlank() ? relevance.trim() : null;
+        String filterReviewStatus = reviewStatus != null && !reviewStatus.isBlank() ? reviewStatus.trim() : null;
         List<EvidenceCorrelationProvenance> incidentProvenance = provenanceRepository == null
             ? List.of() : provenanceRepository.findByOrganisationOrgIdAndInvestigationId(orgId, investigationId);
 
-        // 1) Direct incident evidence (canonical.incident_id)
-        List<CanonicalEvidence> directCanonical = Collections.emptyList();
-        try {
-            directCanonical = canonicalRepo.findByIncidentIdAndOrganisationOrgId(investigationId, orgId).stream()
-                    .filter(ce -> !Boolean.TRUE.equals(ce.getIsDeleted()))
-                    .collect(Collectors.toList());
-        } catch (Exception ignored) {}
-
-        // 2) Explicit links
+        // 1) Explicit links (authoritative)
         List<InvestigationEvidence> linked = Collections.emptyList();
         try {
             linked = linkRepository.findByOrganisationOrgIdAndInvestigationId(orgId, investigationId, PageRequest.of(0, 1000, Sort.by("createdAt").ascending())).getContent();
         } catch (Exception ignored) {}
 
-        // Merge by stableId (externalId), deduplicate: linked entries take precedence (preserve linkedAt), direct fills gaps
+        // 2) Legacy direct incident evidence (read-only compatibility fallback)
+        List<CanonicalEvidence> directCanonical = Collections.emptyList();
+        try {
+            directCanonical = canonicalRepo.findByIncidentIdAndOrganisationOrgId(investigationId, orgId).stream()
+                .filter(ce -> !Boolean.TRUE.equals(ce.getIsDeleted()))
+                .collect(Collectors.toList());
+        } catch (Exception ignored) {}
+
+        Map<Long, InvestigationEvidenceAssessment> assessmentMap = Collections.emptyMap();
+        if (assessmentRepository != null) {
+            try {
+                List<InvestigationEvidenceAssessment> assessments = assessmentRepository.findByOrganisationOrgIdAndInvestigationId(orgId, investigationId);
+                assessmentMap = assessments.stream()
+                        .filter(a -> a.getCanonicalEvidence() != null && a.getCanonicalEvidence().getId() != null)
+                        .collect(Collectors.toMap(a -> a.getCanonicalEvidence().getId(), a -> a, (k1, k2) -> k1));
+            } catch (Exception ignored) {}
+        }
+
+        // Deduplicate by stableId; linked entries take precedence over legacy rows.
         Map<String, InvestigationEvidenceResponse> merged = new LinkedHashMap<>();
 
         for (InvestigationEvidence link : linked) {
@@ -253,24 +307,25 @@ public class InvestigationEvidenceService {
             if (ce == null || Boolean.TRUE.equals(ce.getIsDeleted())) continue;
             if (ce.getOrganisation() != null && !ce.getOrganisation().getOrgId().equals(orgId)) continue;
             String key = ce.getExternalId() != null ? ce.getExternalId() : String.valueOf(ce.getId());
-            merged.put(key, withAssessment(toResponse(link, orgId, investigationId, incidentProvenance), orgId, investigationId, ce.getId()));
+            merged.put(key, withAssessment(toResponse(link, orgId, investigationId, incidentProvenance), assessmentMap.get(ce.getId())));
         }
         for (CanonicalEvidence ce : directCanonical) {
             String key = ce.getExternalId() != null ? ce.getExternalId() : String.valueOf(ce.getId());
             if (merged.containsKey(key)) continue;
             if (ce.getOrganisation() != null && !ce.getOrganisation().getOrgId().equals(orgId)) continue;
-            merged.put(key, withAssessment(fromCanonical(ce, orgId, investigationId, incidentProvenance), orgId, investigationId, ce.getId()));
+            merged.put(key, withAssessment(fromCanonical(ce, orgId, investigationId, incidentProvenance), assessmentMap.get(ce.getId())));
         }
 
         List<InvestigationEvidenceResponse> filtered = new ArrayList<>(merged.values());
 
-        // Apply search and filters (incident-scoped, tenant-safe already)
+        // Apply search and filters
         if (searchLower != null) {
             filtered = filtered.stream().filter(r ->
                     (r.getStableId() != null && r.getStableId().toLowerCase().contains(searchLower)) ||
                     (r.getTitle() != null && r.getTitle().toLowerCase().contains(searchLower)) ||
                     (r.getSourceType() != null && r.getSourceType().toLowerCase().contains(searchLower)) ||
-                    (r.getStatus() != null && r.getStatus().toLowerCase().contains(searchLower))
+                    (r.getStatus() != null && r.getStatus().toLowerCase().contains(searchLower)) ||
+                    (r.getDiscoveryReason() != null && r.getDiscoveryReason().toLowerCase().contains(searchLower))
             ).collect(Collectors.toList());
         }
         if (filterSourceType != null) {
@@ -278,6 +333,12 @@ public class InvestigationEvidenceService {
         }
         if (filterStatus != null) {
             filtered = filtered.stream().filter(r -> filterStatus.equalsIgnoreCase(r.getStatus())).collect(Collectors.toList());
+        }
+        if (filterRelevance != null) {
+            filtered = filtered.stream().filter(r -> filterRelevance.equalsIgnoreCase(r.getRelevance())).collect(Collectors.toList());
+        }
+        if (filterReviewStatus != null) {
+            filtered = filtered.stream().filter(r -> filterReviewStatus.equalsIgnoreCase(r.getReviewStatus())).collect(Collectors.toList());
         }
 
         // Deterministic sorting with allowlist
@@ -350,10 +411,15 @@ public class InvestigationEvidenceService {
                 .originalFileName(extractField(ce.getNormalizedPayload(), "originalName"))
                 .fileId(extractLongField(ce.getNormalizedPayload(), "fileId"))
                 .contentType(extractField(ce.getNormalizedPayload(), "contentType"))
-                .size(extractLongField(ce.getNormalizedPayload(), "size"))
                 .associationType(explanations.isEmpty() ? "INCIDENT_ASSOCIATED" : "AUTOMATICALLY_DISCOVERED")
                 .matchExplanations(explanations)
                 .normalizedPayload(ce.getNormalizedPayload())
+                .distance(1)
+                .discoveryMethod("LEGACY_CANONICAL_INCIDENT")
+                .discoveryPath(Collections.emptyList())
+                .discoveryReason(corr != null ? corr : "Direct legacy incident canonical evidence")
+                .relevance("DIRECT")
+                .reviewStatus("PENDING_REVIEW")
                 .build();
     }
 
@@ -364,29 +430,60 @@ public class InvestigationEvidenceService {
     private InvestigationEvidenceResponse toResponse(InvestigationEvidence link, Long orgId, Long investigationId,
                                                      List<EvidenceCorrelationProvenance> incidentProvenance) {
         CanonicalEvidence ce = link.getCanonicalEvidence();
-        List<EvidenceMatchExplanation> explanations = explanationsFor(orgId, investigationId, ce, incidentProvenance);
-        String corr = explanations.isEmpty() ? extractCorrelation(ce.getNormalizedPayload()) : explanations.get(0).getReason();
+        List<String> parsedPath = parsePathJson(link.getDiscoveryPath());
+        List<EvidenceMatchExplanation> explanations = new ArrayList<>(explanationsFor(orgId, investigationId, ce, incidentProvenance));
+        if (explanations.isEmpty() && !parsedPath.isEmpty()) {
+            explanations.add(EvidenceMatchExplanation.builder()
+                    .reason(link.getDiscoveryReason() != null ? link.getDiscoveryReason() : "Discovered via graph traversal")
+                    .connectionPath(parsedPath)
+                    .discoveredAt(link.getCreatedAt())
+                    .build());
+        }
+        String corr = link.getDiscoveryReason() != null ? link.getDiscoveryReason()
+                : (explanations.isEmpty() ? extractCorrelation(ce != null ? ce.getNormalizedPayload() : null) : explanations.get(0).getReason());
+
+        String payload = ce != null ? ce.getNormalizedPayload() : null;
+
         return InvestigationEvidenceResponse.builder()
-                .stableId(ce.getExternalId())
-                .title(ce.getTitle())
-                .sourceType(ce.getSourceType())
-                .status(ce.getStatus())
+                .stableId(ce != null ? ce.getExternalId() : null)
+                .title(ce != null ? ce.getTitle() : null)
+                .sourceType(ce != null ? ce.getSourceType() : null)
+                .status(ce != null ? ce.getStatus() : null)
                 .linkedAt(link.getCreatedAt())
                 .correlationReason(corr)
-                .batchReference(extractStoredField(ce.getNormalizedPayload(), "batch_id", "batch_reference", "batchReference", "batch"))
-                .sourceRecordId(extractStoredField(ce.getNormalizedPayload(), "source_record_id", "sourceRecordId", "record_id"))
-                .machineReference(extractStoredField(ce.getNormalizedPayload(), "machine_id", "machine_reference", "machineReference"))
-                .supplierReference(extractStoredField(ce.getNormalizedPayload(), "supplier_id", "supplier_reference", "supplierReference"))
-                .productReference(extractStoredField(ce.getNormalizedPayload(), "product_id", "product_reference", "productReference"))
-                .orderReference(extractStoredField(ce.getNormalizedPayload(), "order_id", "order_reference", "orderReference"))
-                .originalFileName(extractField(ce.getNormalizedPayload(), "originalName"))
-                .fileId(extractLongField(ce.getNormalizedPayload(), "fileId"))
-                .contentType(extractField(ce.getNormalizedPayload(), "contentType"))
-                .size(extractLongField(ce.getNormalizedPayload(), "size"))
+                .batchReference(extractStoredField(payload, "batch_id", "batch_reference", "batchReference", "batch"))
+                .sourceRecordId(extractStoredField(payload, "source_record_id", "sourceRecordId", "record_id"))
+                .machineReference(extractStoredField(payload, "machine_id", "machine_reference", "machineReference"))
+                .supplierReference(extractStoredField(payload, "supplier_id", "supplier_reference", "supplierReference"))
+                .productReference(extractStoredField(payload, "product_id", "product_reference", "productReference"))
+                .orderReference(extractStoredField(payload, "order_id", "order_reference", "orderReference"))
+                .originalFileName(extractField(payload, "originalName"))
+                .fileId(extractLongField(payload, "fileId"))
+                .contentType(extractField(payload, "contentType"))
+                .size(extractLongField(payload, "size"))
                 .associationType(explanations.isEmpty() ? "MANUALLY_LINKED" : "AUTOMATICALLY_DISCOVERED")
                 .matchExplanations(explanations)
-                .normalizedPayload(ce.getNormalizedPayload())
+                .normalizedPayload(payload)
+                .distance(link.getDistance())
+                .discoveryMethod(link.getDiscoveryMethod())
+                .discoveryPath(parsedPath)
+                .discoveryReason(link.getDiscoveryReason())
+                .relevance(link.getRelevance())
+                .reviewStatus(link.getReviewStatus())
+                .investigatorNotes(link.getInvestigatorNotes())
+                .reviewedByUserId(link.getReviewedBy() != null ? link.getReviewedBy().getId() : null)
+                .reviewedAt(link.getReviewedAt())
                 .build();
+    }
+
+    private static List<String> parsePathJson(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyList();
+        try {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            return mapper.readValue(json, mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
     }
 
     private List<EvidenceMatchExplanation> explanationsFor(Long orgId, Long investigationId, CanonicalEvidence evidence) {
@@ -630,6 +727,21 @@ public class InvestigationEvidenceService {
         if ("REVIEWED".equals(reviewStatus) && (relevance == null || importance == null || assessmentValue == null)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reviewed evidence requires relevance, importance, and assessment");
         }
+
+        // 1. Authoritative update on InvestigationEvidence
+        var linkOpt = linkRepository.findByOrganisationOrgIdAndInvestigationIdAndCanonicalEvidenceId(orgId, investigationId, evidence.getId());
+        InvestigationEvidence link = linkOpt.orElseGet(() -> InvestigationEvidence.builder()
+                .organisation(investigation.getOrganisation())
+                .investigation(investigation)
+                .canonicalEvidence(evidence)
+                .build());
+        link.setReviewStatus(canonicalValue(reviewStatus));
+        link.setInvestigatorNotes(request.getInvestigatorNotes() != null ? request.getInvestigatorNotes().trim() : null);
+        link.setReviewedBy("REVIEWED".equals(reviewStatus) ? authorizationService.getCurrentUser() : null);
+        link.setReviewedAt("REVIEWED".equals(reviewStatus) ? Instant.now() : null);
+        linkRepository.save(link);
+
+        // 2. Legacy assessment table sync (one-way)
         InvestigationEvidenceAssessment saved = assessmentRepository
                 .findByOrganisationOrgIdAndInvestigationIdAndCanonicalEvidenceId(orgId, investigationId, evidence.getId())
                 .orElseGet(() -> InvestigationEvidenceAssessment.builder()
@@ -646,6 +758,213 @@ public class InvestigationEvidenceService {
         saved.setReviewedAt("REVIEWED".equals(reviewStatus) ? Instant.now() : null);
         assessmentRepository.save(saved);
         return getEvidenceDetail(investigationId, sid);
+    }
+
+    @Transactional
+    public InvestigationEvidenceResponse reviewEvidence(Long investigationId, String stableId, ReviewEvidenceRequest request) {
+        Long orgId = authorizationService.getCurrentOrgId();
+        authorizationService.requireEvidenceGraphAccess();
+        Investigation investigation = loadInvestigation(investigationId);
+        ensureMutable(investigation);
+
+        String sid = stableId != null ? stableId.trim() : null;
+        if (sid == null || sid.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "stableId is required");
+
+        CanonicalEvidence evidence = canonicalRepo.findByExternalIdAndOrganisationOrgId(sid, orgId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Evidence not found with stableId: " + sid));
+        if (Boolean.TRUE.equals(evidence.getIsDeleted()) || !belongsToInvestigation(orgId, investigationId, evidence)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Evidence not found for investigation " + investigationId + " with stableId: " + sid);
+        }
+
+        String rawStatus = request.getReviewStatus() != null ? request.getReviewStatus().trim().toUpperCase(Locale.ROOT) : "PENDING_REVIEW";
+        if (!Set.of("PENDING_REVIEW", "REVIEWED", "REJECTED").contains(rawStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reviewStatus must be PENDING_REVIEW, REVIEWED, or REJECTED");
+        }
+
+        // 1. Authoritative update on InvestigationEvidence
+        var linkOpt = linkRepository.findByOrganisationOrgIdAndInvestigationIdAndCanonicalEvidenceId(orgId, investigationId, evidence.getId());
+        InvestigationEvidence link = linkOpt.orElseGet(() -> InvestigationEvidence.builder()
+                .organisation(investigation.getOrganisation())
+                .investigation(investigation)
+                .canonicalEvidence(evidence)
+                .build());
+
+        boolean isFinal = "REVIEWED".equals(rawStatus) || "REJECTED".equals(rawStatus);
+        link.setReviewStatus(rawStatus);
+        link.setInvestigatorNotes(request.getInvestigatorNotes() != null ? request.getInvestigatorNotes().trim() : null);
+        link.setReviewedBy(isFinal ? authorizationService.getCurrentUser() : null);
+        link.setReviewedAt(isFinal ? Instant.now() : null);
+        linkRepository.save(link);
+
+        // 2. One-way sync to legacy assessment table
+        if (assessmentRepository != null) {
+            try {
+                var assessment = assessmentRepository
+                        .findByOrganisationOrgIdAndInvestigationIdAndCanonicalEvidenceId(orgId, investigationId, evidence.getId())
+                        .orElseGet(() -> InvestigationEvidenceAssessment.builder()
+                                .organisation(investigation.getOrganisation())
+                                .investigation(investigation)
+                                .canonicalEvidence(evidence)
+                                .build());
+                assessment.setReviewStatus(rawStatus);
+                assessment.setInvestigatorNotes(link.getInvestigatorNotes());
+                assessment.setReviewedBy(link.getReviewedBy());
+                assessment.setReviewedAt(link.getReviewedAt());
+                assessmentRepository.save(assessment);
+            } catch (Exception ignored) {}
+        }
+
+        return getEvidenceDetail(investigationId, sid);
+    }
+
+    @Transactional
+    public int attachDiscoveredEvidence(Long orgId, Long investigationId, String batchRef, List<EvidenceDiscoveryResult> discoveries) {
+        Investigation inv = investigationRepository.findByIdAndOrganisationOrgId(investigationId, orgId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Investigation not found with id: " + investigationId));
+        if (discoveries == null || discoveries.isEmpty()) return 0;
+
+        int attached = 0;
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        // Collapse duplicates deterministically by evidenceStableId in Java
+        Map<String, List<EvidenceDiscoveryResult>> grouped = new LinkedHashMap<>();
+        for (EvidenceDiscoveryResult d : discoveries) {
+            if (d.evidenceStableId() != null && !d.evidenceStableId().isBlank()) {
+                grouped.computeIfAbsent(d.evidenceStableId().trim(), k -> new ArrayList<>()).add(d);
+            }
+        }
+
+        for (Map.Entry<String, List<EvidenceDiscoveryResult>> entry : grouped.entrySet()) {
+            String stableId = entry.getKey();
+            List<EvidenceDiscoveryResult> candidates = entry.getValue();
+
+            candidates.sort(Comparator.comparingInt(this::routePrecedence)
+                    .thenComparingInt(EvidenceDiscoveryResult::distance));
+            EvidenceDiscoveryResult best = candidates.get(0);
+
+            var classification = relevanceClassifier != null
+                    ? relevanceClassifier.classify(best, batchRef)
+                    : new EvidenceRelevanceClassifier.ClassificationResult(
+                            best.distance() == 1 ? "DIRECT" : (best.distance() == 2 ? "RELATED" : "SUPPORTING"),
+                            "Discovered via " + (best.semanticRoute() != null ? best.semanticRoute() : "graph traversal")
+                    );
+
+            Optional<CanonicalEvidence> canonicalOpt = canonicalRepo.findByExternalIdAndOrganisationOrgId(stableId, orgId);
+            if (canonicalOpt.isEmpty()) {
+                if (stableId.startsWith("SRC_")) {
+                    String sub = stableId.substring(4);
+                    int u = sub.indexOf('_');
+                    if (u >= 0 && u + 1 < sub.length()) {
+                        canonicalOpt = canonicalRepo.findByExternalIdAndOrganisationOrgId(sub.substring(u + 1), orgId);
+                    }
+                }
+                if (canonicalOpt.isEmpty()) {
+                    canonicalOpt = canonicalRepo.findAllByOrganisationOrgId(orgId).stream()
+                            .filter(c -> c.getExternalId() != null && (c.getExternalId().equalsIgnoreCase(stableId) || c.getExternalId().endsWith("_" + stableId)))
+                            .findFirst();
+                }
+            }
+            if (canonicalOpt.isEmpty()) {
+                continue;
+            }
+            CanonicalEvidence ce = canonicalOpt.get();
+            if (Boolean.TRUE.equals(ce.getIsDeleted())) continue;
+
+            // Skip cross-batch MES/PRODUCTION records: these are production records for OTHER batches
+            // that happen to share an intermediate entity (machine, supplier, etc.) with the anchor batch.
+            String ceSrcType = ce.getSourceType();
+            if (("MES".equalsIgnoreCase(ceSrcType) || "PRODUCTION".equalsIgnoreCase(ceSrcType))
+                    && ce.getNormalizedPayload() != null) {
+                String evidenceBatchRef = extractStoredField(ce.getNormalizedPayload(),
+                        "batchReference", "batch_id", "batch", "batchReference");
+                if (evidenceBatchRef != null && !batchRef.equalsIgnoreCase(evidenceBatchRef.trim())) {
+                    continue;
+                }
+            }
+
+            String pathJson = "[]";
+            try {
+                pathJson = mapper.writeValueAsString(best.nodePath());
+            } catch (Exception ignored) {}
+
+            Optional<InvestigationEvidence> linkOpt = linkRepository
+                    .findByOrganisationOrgIdAndInvestigationIdAndCanonicalEvidenceId(orgId, investigationId, ce.getId());
+
+            if (linkOpt.isEmpty()) {
+                InvestigationEvidence newLink = InvestigationEvidence.builder()
+                        .organisation(inv.getOrganisation())
+                        .investigation(inv)
+                        .canonicalEvidence(ce)
+                        .relevance(classification.relevance())
+                        .distance(best.distance())
+                        .discoveryMethod("NEO4J_GRAPH_TRAVERSAL")
+                        .discoveryPath(pathJson)
+                        .discoveryReason(classification.discoveryReason())
+                        .reviewStatus("PENDING_REVIEW")
+                        .build();
+                linkRepository.save(newLink);
+                attached++;
+            } else {
+                InvestigationEvidence existing = linkOpt.get();
+                boolean isReviewed = "REVIEWED".equalsIgnoreCase(existing.getReviewStatus())
+                        || "REJECTED".equalsIgnoreCase(existing.getReviewStatus());
+                boolean isLegacy = "LEGACY_CANONICAL_INCIDENT".equals(existing.getDiscoveryMethod());
+                boolean noPath = existing.getDiscoveryPath() == null || "[]".equals(existing.getDiscoveryPath());
+                boolean betterOrEqual = existing.getDistance() == null || best.distance() <= existing.getDistance();
+
+                if (isLegacy || noPath || betterOrEqual) {
+                    existing.setDistance(best.distance());
+                    existing.setDiscoveryPath(pathJson);
+                    existing.setDiscoveryReason(classification.discoveryReason());
+                    existing.setDiscoveryMethod("NEO4J_GRAPH_TRAVERSAL");
+                    existing.setRelevance(classification.relevance());
+                    linkRepository.save(existing);
+                    attached++;
+                }
+            }
+        }
+
+        // Cleanup: Remove stale cross-batch MES/PRODUCTION InvestigationEvidence rows
+        // that were created by the bug and are still PENDING_REVIEW.
+        // These are production records for OTHER batches that should never have been linked.
+        if (batchRef != null) {
+            try {
+                List<InvestigationEvidence> allLinks = linkRepository
+                        .findByOrganisationOrgIdAndInvestigationId(orgId, investigationId,
+                                PageRequest.of(0, 1000, Sort.by("createdAt").ascending()))
+                        .getContent();
+                for (InvestigationEvidence link : allLinks) {
+                    if (link.getCanonicalEvidence() == null || Boolean.TRUE.equals(link.getCanonicalEvidence().getIsDeleted())) continue;
+                    if (!"PENDING_REVIEW".equals(link.getReviewStatus())) continue;
+                    String srcType = link.getCanonicalEvidence().getSourceType();
+                    if (!"MES".equalsIgnoreCase(srcType) && !"PRODUCTION".equalsIgnoreCase(srcType)) continue;
+                    String payload = link.getCanonicalEvidence().getNormalizedPayload();
+                    if (payload == null) continue;
+                    String evidenceBatchRef = extractStoredField(payload, "batchReference", "batch_id", "batch", "batchReference");
+                    if (evidenceBatchRef != null && !batchRef.equalsIgnoreCase(evidenceBatchRef.trim())) {
+                        linkRepository.delete(link);
+                    }
+                }
+            } catch (Exception e) {
+                // Best-effort cleanup; do not fail the entire discovery
+            }
+        }
+
+        return attached;
+    }
+
+    private int routePrecedence(EvidenceDiscoveryResult r) {
+        String route = r.semanticRoute() != null ? r.semanticRoute().toUpperCase(Locale.ROOT) : "";
+        return switch (route) {
+            case "DIRECT_BATCH" -> 1;
+            case "MACHINE_ROUTE" -> 2;
+            case "SUPPLIER_ROUTE" -> 3;
+            case "WAREHOUSE_ROUTE" -> 4;
+            case "PRODUCT_ROUTE" -> 5;
+            case "CUSTOMER_ROUTE" -> 6;
+            case "DERIVED_EVIDENCE" -> 7;
+            default -> 8;
+        };
     }
 
     private static String canonicalValue(String value) {

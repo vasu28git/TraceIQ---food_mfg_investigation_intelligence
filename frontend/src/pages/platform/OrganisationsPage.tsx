@@ -68,13 +68,13 @@ export function OrganisationsPage() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24 }}>Loading organisations...</div>
+  if (loading) return <div style={{ padding: 24, color: '#94A3B8' }}>Loading organisations...</div>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Organisations</h2>
-        <Link to="/platform/organisations/new" style={{ padding: '8px 14px', background: '#111', color: '#fff', borderRadius: 6, textDecoration: 'none' }}>
+        <h2 style={{ margin: 0, color: '#F8FAFC' }}>Organisations</h2>
+        <Link to="/platform/organisations/new" style={{ padding: '8px 14px', background: '#6366F1', color: '#fff', borderRadius: 6, textDecoration: 'none', fontWeight: 600, fontSize: 14 }}>
           + Create Organisation
         </Link>
       </div>
@@ -87,9 +87,9 @@ export function OrganisationsPage() {
           placeholder="Search by name, domain, status..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          style={{ flex: 1, minWidth: 220, padding: '8px 10px', border: '1px solid #ddd', borderRadius: 6 }}
+          style={{ flex: 1, minWidth: 220, padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: 6, color: '#0F172A', background: '#fff', fontSize: 14 }}
         />
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: 6 }}>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: 6, color: '#0F172A', background: '#fff', fontSize: 14 }}>
           <option value="ALL">All statuses</option>
           <option value="ACTIVE">Active</option>
           <option value="SUSPENDED">Suspended</option>
@@ -98,7 +98,7 @@ export function OrganisationsPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <div style={{ padding: 24, textAlign: 'center', color: '#888', background: '#fff', border: '1px solid #eee', borderRadius: 8 }}>
+        <div style={{ padding: 24, textAlign: 'center', color: '#64748B', background: '#fff', border: '1px solid #eee', borderRadius: 8 }}>
           {orgs.length === 0 ? 'No organisations yet. Create one.' : 'No matches for your search.'}
         </div>
       ) : (
@@ -106,35 +106,35 @@ export function OrganisationsPage() {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
-                <tr style={{ background: '#fafafa', textAlign: 'left' }}>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>Name</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>Domain</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>Status</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>Actions</th>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee', color: '#475569', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Name</th>
+                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee', color: '#475569', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Domain</th>
+                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee', color: '#475569', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Status</th>
+                  <th style={{ padding: '10px 12px', borderBottom: '1px solid #eee', color: '#475569', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((o) => (
                   <tr key={o.orgId} style={{ borderBottom: '1px solid #f0f0f0' }}>
                     <td style={{ padding: '10px 12px' }}>
-                      <Link to={`/platform/organisations/${o.orgId}`} style={{ color: '#111', fontWeight: 600, textDecoration: 'none' }}>
+                      <Link to={`/platform/organisations/${o.orgId}`} style={{ color: '#0F172A', fontWeight: 600, textDecoration: 'none' }}>
                         {o.name}
                       </Link>
                     </td>
-                    <td style={{ padding: '10px 12px', color: '#666' }}>{o.domain || '-'}</td>
+                    <td style={{ padding: '10px 12px', color: '#475569' }}>{o.domain || '-'}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 999, background: (o.status || '').toUpperCase() === 'ACTIVE' ? '#e6f9ed' : '#fee', color: (o.status || '').toUpperCase() === 'ACTIVE' ? '#0a7' : '#d44' }}>
                         {o.status || 'UNKNOWN'}
                       </span>
                     </td>
                     <td style={{ padding: '10px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <Link to={`/platform/organisations/${o.orgId}`} style={{ padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, textDecoration: 'none', color: '#111', fontSize: 13 }}>
+                      <Link to={`/platform/organisations/${o.orgId}`} style={{ padding: '4px 8px', border: '1px solid #CBD5E1', borderRadius: 6, textDecoration: 'none', color: '#0F172A', fontSize: 13, background: '#fff' }}>
                         View
                       </Link>
-                      <button onClick={() => handleToggleStatus(o)} style={{ padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 13 }}>
+                      <button onClick={() => handleToggleStatus(o)} style={{ padding: '4px 8px', border: '1px solid #CBD5E1', borderRadius: 6, background: '#fff', color: '#334155', cursor: 'pointer', fontSize: 13 }}>
                         {(o.status || '').toUpperCase() === 'ACTIVE' ? 'Suspend' : 'Activate'}
                       </button>
-                      <button onClick={() => handleDelete(o.orgId!)} style={{ padding: '4px 8px', border: '1px solid #fcc', borderRadius: 6, background: '#fff', color: '#d00', cursor: 'pointer', fontSize: 13 }}>
+                      <button onClick={() => handleDelete(o.orgId!)} style={{ padding: '4px 8px', border: '1px solid #fecaca', borderRadius: 6, background: '#fff', color: '#dc2626', cursor: 'pointer', fontSize: 13 }}>
                         Delete
                       </button>
                     </td>

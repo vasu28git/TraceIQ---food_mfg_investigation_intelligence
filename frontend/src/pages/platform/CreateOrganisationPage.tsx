@@ -52,9 +52,9 @@ export function CreateOrganisationPage() {
           <p style={{ margin: '8px 0 0', color: '#333', fontSize: 14 }}>The organisation has been provisioned with its initial ADMIN role and user.</p>
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h4 style={{ margin: 0 }}>Organisation</h4>
-          <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, color: '#0F172A' }}>
+          <h4 style={{ margin: 0, color: '#0F172A' }}>Organisation</h4>
+          <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 4, color: '#334155' }}>
             <div>
               <strong>Name:</strong> {result.organisation.name}
             </div>
@@ -70,9 +70,9 @@ export function CreateOrganisationPage() {
           </div>
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h4 style={{ margin: 0 }}>Initial Admin</h4>
-          <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, color: '#0F172A' }}>
+          <h4 style={{ margin: 0, color: '#0F172A' }}>Initial Admin</h4>
+          <div style={{ fontSize: 14, display: 'flex', flexDirection: 'column', gap: 4, color: '#334155' }}>
             <div>
               <strong>Username:</strong> {result.ogUser.username}
             </div>
@@ -82,17 +82,17 @@ export function CreateOrganisationPage() {
             <div>
               <strong>Status:</strong> {result.ogUser.status}
             </div>
-            <div style={{ padding: '8px 10px', background: '#fff8e1', border: '1px solid #ffecb3', borderRadius: 6, fontSize: 13 }}>
+            <div style={{ padding: '8px 10px', background: '#fff8e1', border: '1px solid #ffecb3', borderRadius: 6, fontSize: 13, color: '#92400e' }}>
               Initial password is the configured provisioning password (default <code>ChangeMe123!</code>). The user must change it on first login (<code>mustChangePassword=true</code>).
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 12 }}>
-          <Link to={`/platform/organisations/${result.organisation.orgId}`} style={{ padding: '8px 14px', background: '#111', color: '#fff', borderRadius: 6, textDecoration: 'none' }}>
+          <Link to={`/platform/organisations/${result.organisation.orgId}`} style={{ padding: '8px 14px', background: '#6366F1', color: '#fff', borderRadius: 6, textDecoration: 'none', fontWeight: 600 }}>
             View Organisation
           </Link>
-          <Link to="/platform/organisations" style={{ padding: '8px 14px', border: '1px solid #ddd', borderRadius: 6, textDecoration: 'none', color: '#111' }}>
+          <Link to="/platform/organisations" style={{ padding: '8px 14px', border: '1px solid #CBD5E1', borderRadius: 6, textDecoration: 'none', color: '#334155', background: '#fff', fontWeight: 500 }}>
             Back to list
           </Link>
         </div>
@@ -101,26 +101,26 @@ export function CreateOrganisationPage() {
   }
 
   return (
-    <div style={{ maxWidth: 520, margin: '0 auto', background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, padding: 24 }}>
-      <h2 style={{ margin: 0, marginBottom: 8 }}>Create Organisation</h2>
-      <p style={{ margin: 0, marginBottom: 16, fontSize: 14, color: '#666' }}>Provision a new organisation with its initial ADMIN role and user.</p>
+    <div style={{ maxWidth: 520, margin: '0 auto', background: '#fff', border: '1px solid #e5e5e5', borderRadius: 8, padding: 24, color: '#0F172A' }}>
+      <h2 style={{ margin: 0, marginBottom: 8, color: '#0F172A' }}>Create Organisation</h2>
+      <p style={{ margin: 0, marginBottom: 16, fontSize: 14, color: '#475569' }}>Provision a new organisation with its initial ADMIN role and user.</p>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="name">Name *</label>
-          <input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Acme Corp" style={{ padding: 8, border: '1px solid #ccc', borderRadius: 4 }} />
+          <label htmlFor="name" style={{ color: '#334155', fontWeight: 600, fontSize: 13 }}>Name *</label>
+          <input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Acme Corp" style={{ padding: 8, border: '1px solid #CBD5E1', borderRadius: 4, color: '#0F172A', background: '#fff', fontSize: 14 }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="domain">Domain</label>
-          <input id="domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="acme.com" style={{ padding: 8, border: '1px solid #ccc', borderRadius: 4 }} />
+          <label htmlFor="domain" style={{ color: '#334155', fontWeight: 600, fontSize: 13 }}>Domain</label>
+          <input id="domain" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="acme.com" style={{ padding: 8, border: '1px solid #CBD5E1', borderRadius: 4, color: '#0F172A', background: '#fff', fontSize: 14 }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="description">Description</label>
-          <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Organisation description" rows={3} style={{ padding: 8, border: '1px solid #ccc', borderRadius: 4 }} />
+          <label htmlFor="description" style={{ color: '#334155', fontWeight: 600, fontSize: 13 }}>Description</label>
+          <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Organisation description" rows={3} style={{ padding: 8, border: '1px solid #CBD5E1', borderRadius: 4, color: '#0F172A', background: '#fff', fontSize: 14 }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label htmlFor="status">Status</label>
-          <select id="status" value={status} onChange={(e) => setStatus(e.target.value)} style={{ padding: 8, border: '1px solid #ccc', borderRadius: 4 }}>
+          <label htmlFor="status" style={{ color: '#334155', fontWeight: 600, fontSize: 13 }}>Status</label>
+          <select id="status" value={status} onChange={(e) => setStatus(e.target.value)} style={{ padding: 8, border: '1px solid #CBD5E1', borderRadius: 4, color: '#0F172A', background: '#fff', fontSize: 14 }}>
             <option value="ACTIVE">ACTIVE</option>
             <option value="SUSPENDED">SUSPENDED</option>
             <option value="INACTIVE">INACTIVE</option>
@@ -130,10 +130,10 @@ export function CreateOrganisationPage() {
         {error && <div style={{ padding: 10, background: '#fee', border: '1px solid #fcc', borderRadius: 6, color: '#a00', fontSize: 14 }}>{error}</div>}
 
         <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-          <button type="submit" disabled={loading} style={{ flex: 1, padding: 10, background: '#111', color: '#fff', border: 0, borderRadius: 4, cursor: 'pointer' }}>
+          <button type="submit" disabled={loading} style={{ flex: 1, padding: 10, background: '#6366F1', color: '#fff', border: 0, borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
             {loading ? 'Creating...' : 'Create Organisation'}
           </button>
-          <button type="button" onClick={() => navigate('/platform/organisations')} style={{ padding: 10, border: '1px solid #ddd', background: '#fff', borderRadius: 4, cursor: 'pointer' }}>
+          <button type="button" onClick={() => navigate('/platform/organisations')} style={{ padding: 10, border: '1px solid #CBD5E1', background: '#fff', color: '#334155', borderRadius: 4, cursor: 'pointer', fontWeight: 500, fontSize: 14 }}>
             Cancel
           </button>
         </div>

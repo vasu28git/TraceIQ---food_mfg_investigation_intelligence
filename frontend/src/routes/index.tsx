@@ -13,7 +13,7 @@ import { OrganisationDetailsPage } from '../pages/platform/OrganisationDetailsPa
 import { OrganisationDashboard } from '../pages/organisation/Dashboard'
 import { UsersPage } from '../pages/organisation/UsersPage'
 import { RolesPage } from '../pages/organisation/RolesPage'
-import { ConfigurationsPage } from '../pages/organisation/ConfigurationsPage'
+
 import { IntegrationsPage } from '../pages/organisation/IntegrationsPage'
 import { FilesPage } from '../pages/organisation/FilesPage'
 import { InvestigationsPage } from '../pages/organisation/InvestigationsPage'
@@ -63,7 +63,7 @@ export const router = createBrowserRouter([
           { path: '/organisation/incidents/:investigationId', element: <InvestigationWorkspacePage /> },
           { path: '/organisation/users', element: <UsersPage /> },
           { path: '/organisation/roles', element: <RolesPage /> },
-          { path: '/organisation/configurations', element: <ConfigurationsPage /> },
+
           { path: '/organisation/integrations', element: <IntegrationsPage /> },
           { path: '/organisation/files', element: <FilesPage /> },
           { path: '/organisation/settings', element: <Placeholder title="Organisation Settings" /> },

@@ -87,10 +87,10 @@ export const ORG_NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/organisation/dashboard', alwaysVisible: true, icon: '◧' },
   { label: 'Investigations', to: '/organisation/investigations', alwaysVisible: true, icon: '▣' },
   { label: 'Complaints', to: '/organisation/complaints', alwaysVisible: true, icon: '⚑' },
-  { label: 'Evidence Graph', to: '/organisation/evidence-graph', group: 'EVIDENCE_GRAPH', icon: '⬡' },
+  { label: 'Evidence Data', to: '/organisation/evidence-graph', group: 'EVIDENCE_GRAPH', icon: '◈' },
   { label: 'Users', to: '/organisation/users', group: 'USER_READ', icon: '◈' },
   { label: 'Roles & Permissions', to: '/organisation/roles', group: 'ROLE_READ', icon: '⬢' },
-  { label: 'Configurations', to: '/organisation/configurations', group: 'CONFIG_READ', icon: '⚙' },
+
   { label: 'Integrations', to: '/organisation/integrations', group: 'INTEGRATION_READ', icon: '⇄' },
   { label: 'Files', to: '/organisation/files', group: 'FILE_READ', icon: '▤' },
 ]

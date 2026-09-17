@@ -96,7 +96,7 @@ export function OrganisationLayout() {
         <div style={{ padding: 20, borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {!collapsed && (
             <div>
-              <div style={{ fontWeight: 800, letterSpacing: 0.5, fontSize: 18, color: TEXT_MAIN }}>TaceIQ</div>
+              <div style={{ fontWeight: 800, letterSpacing: 0.5, fontSize: 18, color: TEXT_MAIN }}>TraceIQ</div>
               <div style={{ fontSize: 11, color: TEXT_SEC, marginTop: 2 }}>Organisation Workspace</div>
             </div>
           )}
@@ -130,10 +130,10 @@ export function OrganisationLayout() {
           <div>
             {!collapsed && <div style={{ fontSize: 11, color: TEXT_SEC, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8, paddingLeft: 8 }}>Evidence</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {visibleNav.filter(i => ['Complaints','Evidence Graph','Integrations','Files'].includes(i.label)).map((item) => (
+              {visibleNav.filter(i => ['Complaints','Evidence Data'].includes(i.label)).map((item) => (
                 <NavItem key={item.to} to={item.to} label={collapsed ? (item.icon || '•') : item.label} />
               ))}
-              {visibleNav.filter(i => ['Complaints','Evidence Graph','Integrations','Files'].includes(i.label)).length===0 && !collapsed && (
+              {visibleNav.filter(i => ['Complaints','Evidence Data'].includes(i.label)).length===0 && !collapsed && (
                 <div style={{ fontSize: 11, color: '#64748B', padding: '8px', fontStyle: 'italic' }}>No evidence modules permitted</div>
               )}
             </div>
@@ -142,10 +142,10 @@ export function OrganisationLayout() {
           <div>
             {!collapsed && <div style={{ fontSize: 11, color: TEXT_SEC, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8, paddingLeft: 8 }}>Administration</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {visibleNav.filter(i => !['Dashboard','Investigations','Complaints','Evidence Graph','Integrations','Files'].includes(i.label)).map((item) => (
+              {visibleNav.filter(i => !['Dashboard','Investigations','Complaints','Evidence Data'].includes(i.label)).map((item) => (
                 <NavItem key={item.to} to={item.to} label={collapsed ? (item.icon || '•') : item.label} />
               ))}
-              {visibleNav.filter(i => !['Dashboard','Investigations','Complaints','Evidence Graph','Integrations','Files'].includes(i.label)).length===0 && !collapsed && (
+              {visibleNav.filter(i => !['Dashboard','Investigations','Complaints','Evidence Data'].includes(i.label)).length===0 && !collapsed && (
                 <div style={{ fontSize: 11, color: '#64748B', padding: '8px', fontStyle: 'italic' }}>No additional modules permitted</div>
               )}
               {showEmptyHint && !collapsed && (
@@ -167,7 +167,7 @@ export function OrganisationLayout() {
           </div>
         </div>
 
-        {!collapsed && <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, fontSize: 11, color: '#475569' }}>© TaceIQ Platform</div>}
+        {!collapsed && <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, fontSize: 11, color: '#475569' }}>© TraceIQ Platform</div>}
       </aside>
 
       {/* Mobile overlay when sidebar is open on small screens */}

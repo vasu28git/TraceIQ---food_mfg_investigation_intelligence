@@ -68,7 +68,7 @@ export function AppLayout() {
         }}
       >
         <div style={{ padding: 20, borderBottom: `1px solid ${BORDER}` }}>
-          <div style={{ fontWeight: 800, letterSpacing: 0.5, fontSize: 18, color: TEXT_MAIN }}>TaceIQ</div>
+          <div style={{ fontWeight: 800, letterSpacing: 0.5, fontSize: 18, color: TEXT_MAIN }}>TraceIQ</div>
           <div style={{ fontSize: 11, color: '#E879F9', marginTop: 2, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Platform Admin</div>
         </div>
 
@@ -98,7 +98,7 @@ export function AppLayout() {
           </div>
         </div>
 
-        <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, fontSize: 11, color: '#475569' }}>© TaceIQ Platform · Admin</div>
+        <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, fontSize: 11, color: '#475569' }}>© TraceIQ Platform · Admin</div>
       </aside>
 
       {/* Main */}

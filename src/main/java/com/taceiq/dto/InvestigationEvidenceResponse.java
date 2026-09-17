@@ -32,6 +32,7 @@ public class InvestigationEvidenceResponse {
     private String discoveryMethod;
     private List<String> discoveryPath;
     private String discoveryReason;
+    private String semanticRoute;
     private String assessmentRelevance;
     private List<EvidenceMatchExplanation> matchExplanations;
     private String reviewStatus;
@@ -53,10 +54,10 @@ public class InvestigationEvidenceResponse {
         String supp = extractField(payload, "supplierReference", "supplier_id", "supplierId", "supplier_reference");
 
         return InvestigationEvidenceResponse.builder()
-                .stableId(ev.getExternalId())
-                .title(ev.getTitle())
-                .sourceType(ev.getSourceType())
-                .status(ev.getStatus())
+                .stableId(ev != null ? ev.getExternalId() : null)
+                .title(ev != null ? ev.getTitle() : null)
+                .sourceType(ev != null ? ev.getSourceType() : null)
+                .status(ev != null ? ev.getStatus() : null)
                 .linkedAt(link.getCreatedAt())
                 .correlationReason(corr)
                 .batchReference(batch)
@@ -65,6 +66,14 @@ public class InvestigationEvidenceResponse {
                 .supplierReference(supp)
                 .sourceRecordId(recId)
                 .normalizedPayload(payload)
+                .distance(link.getDistance())
+                .discoveryMethod(link.getDiscoveryMethod())
+                .discoveryReason(link.getDiscoveryReason())
+                .relevance(link.getRelevance())
+                .reviewStatus(link.getReviewStatus())
+                .investigatorNotes(link.getInvestigatorNotes())
+                .reviewedByUserId(link.getReviewedBy() != null ? link.getReviewedBy().getId() : null)
+                .reviewedAt(link.getReviewedAt())
                 .build();
     }
 

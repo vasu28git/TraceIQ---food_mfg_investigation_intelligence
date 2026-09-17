@@ -89,21 +89,28 @@ function ReviewStatusBadge({ status }: { status?: string | null }) {
 }
 
 function deriveRoute(item: InvestigationEvidence): string {
+  if (item.semanticRoute) return item.semanticRoute
   if (item.distance === 1) return 'DIRECT_BATCH'
   if (item.discoveryPath && item.discoveryPath.length > 2) {
     const mid = item.discoveryPath[1].toUpperCase()
     if (mid.startsWith('M-') || mid.includes('MACHINE')) return 'MACHINE_ROUTE'
     if (mid.startsWith('SUP-') || mid.includes('SUPPLIER')) return 'SUPPLIER_ROUTE'
-    if (mid.startsWith('LOG-') || mid.includes('ZONE') || mid.includes('WAREHOUSE')) return 'WAREHOUSE_ROUTE'
+    if (mid.startsWith('WZ-') || mid.startsWith('WH-') || mid.startsWith('LOG-') || mid.includes('ZONE') || mid.includes('WAREHOUSE')) return 'WAREHOUSE_ROUTE'
     if (mid.startsWith('PRD-') || mid.includes('PRODUCT')) return 'PRODUCT_ROUTE'
+    if (mid.startsWith('CUST-') || mid.includes('CUSTOMER')) return 'CUSTOMER_ROUTE'
+  }
+  if (item.discoveryReason) {
+    const r = item.discoveryReason.toLowerCase()
+    if (r.includes('machine')) return 'MACHINE_ROUTE'
+    if (r.includes('supplier')) return 'SUPPLIER_ROUTE'
+    if (r.includes('warehouse') || r.includes('storage')) return 'WAREHOUSE_ROUTE'
+    if (r.includes('product') || r.includes('specification')) return 'PRODUCT_ROUTE'
+    if (r.includes('customer')) return 'CUSTOMER_ROUTE'
   }
   if (item.machineReference) return 'MACHINE_ROUTE'
   if (item.supplierReference) return 'SUPPLIER_ROUTE'
   if (item.productReference) return 'PRODUCT_ROUTE'
-  if (item.discoveryReason && item.discoveryReason.toLowerCase().includes('machine')) return 'MACHINE_ROUTE'
-  if (item.discoveryReason && item.discoveryReason.toLowerCase().includes('supplier')) return 'SUPPLIER_ROUTE'
-  if (item.discoveryReason && item.discoveryReason.toLowerCase().includes('warehouse')) return 'WAREHOUSE_ROUTE'
-  return item.distance === 2 ? 'MACHINE_ROUTE' : 'GRAPH_ROUTE'
+  return 'GRAPH_ROUTE'
 }
 
 function cleanNodeName(node: string): string {
@@ -114,11 +121,9 @@ function cleanNodeName(node: string): string {
 type Summary = { totalEvidence: number; reviewed: number; pendingReview: number; sourceSystems: string[] }
 
 export function InvestigationEvidenceReview({ investigation }: { investigation: Investigation }) {
-  const [items, setItems] = useState<InvestigationEvidence[]>([])
+  const [allEvidence, setAllEvidence] = useState<InvestigationEvidence[]>([])
   const [summary, setSummary] = useState<Summary>({ totalEvidence: 0, reviewed: 0, pendingReview: 0, sourceSystems: [] })
   const [page, setPage] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
   const [source, setSource] = useState('')
   const [review, setReview] = useState('')
@@ -145,21 +150,26 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
     setLoading(true)
     setError(null)
     try {
-      const response = await listInvestigationEvidence(investigation.id, page, size, {
-        search: search || undefined,
-        sourceType: source || undefined,
-        relevance: relevanceFilter || undefined,
-        reviewStatus: review || undefined,
-      })
-      setItems(response.content || [])
-      setTotal(response.totalElements || 0)
-      setTotalPages(response.totalPages || 0)
+      let allItems: InvestigationEvidence[] = []
+      let currentPage = 0
+      let hasMore = true
+      while (hasMore) {
+        const response = await listInvestigationEvidence(investigation.id, currentPage, 100)
+        const batch = response.content || []
+        allItems = allItems.concat(batch)
+        if (response.totalPages === 0 || currentPage + 1 >= response.totalPages || batch.length === 0) {
+          hasMore = false
+        } else {
+          currentPage++
+        }
+      }
+      setAllEvidence(allItems)
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, 'Unable to load investigation evidence'))
     } finally {
       setLoading(false)
     }
-  }, [investigation.id, page, search, source, relevanceFilter, review])
+  }, [investigation.id])
 
   useEffect(() => {
     load().catch(() => undefined)
@@ -209,7 +219,7 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
         investigatorNotes: saved.investigatorNotes || '',
       } as InvestigationEvidenceAssessmentRequest
       setSelected(saved)
-      setItems(current => current.map(item => (item.stableId === saved.stableId ? saved : item)))
+      setAllEvidence(current => current.map(item => (item.stableId === saved.stableId ? saved : item)))
       setForm(next)
       setSavedForm(next)
       setSuccess('Assessment saved')
@@ -232,7 +242,7 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
         investigatorNotes: form.investigatorNotes || null,
       })
       setSelected(updated)
-      setItems(current => current.map(item => (item.stableId === updated.stableId ? updated : item)))
+      setAllEvidence(current => current.map(item => (item.stableId === updated.stableId ? updated : item)))
       const next = {
         reviewStatus: status === 'REJECTED' ? 'PENDING_REVIEW' : status,
         relevance: updated.assessmentRelevance || null,
@@ -251,53 +261,121 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
     }
   }
 
-  const nextPending = () => {
-    const next = items.find(
-      item => (item.reviewStatus || 'PENDING_REVIEW') === 'PENDING_REVIEW' && item.stableId !== selected?.stableId
-    )
-    if (next) openEvidence(next)
-  }
-
-  const sourceOptions = useMemo(() => Array.from(new Set(items.map(item => item.sourceType).filter(Boolean))), [items])
+  const sourceOptions = useMemo(() => Array.from(new Set(allEvidence.map(item => item.sourceType).filter(Boolean))), [allEvidence])
   const importanceRank: Record<string, number> = { HIGH: 0, CRITICAL: 0, MEDIUM: 1, IMPORTANT: 1, LOW: 2, CONTEXT: 2 }
 
   const relevanceGroup = (item: InvestigationEvidence) => {
-    const relevance = String(item.relevance || '').toUpperCase()
-    if (relevance === 'DIRECT') return 'Direct Evidence (Batch Anchor)'
-    if (relevance === 'RELATED') return 'Related Evidence (Multi-Hop Graph Discovery)'
-    if (relevance === 'SUPPORTING') return 'Supporting Traceability Records'
+    const relevance = String(item.relevance || '').trim().toUpperCase()
+    if (relevance === 'DIRECT') return 'Direct Evidence'
+    if (relevance === 'RELATED') return 'Related Evidence'
+    if (relevance === 'SUPPORTING') return 'Supporting Evidence'
     if (relevance === 'RELEVANT') return 'Relevant'
-    if (relevance === 'NOT_RELEVANT') return 'Not relevant'
+    if (relevance === 'NOT_RELEVANT') return 'Not Relevant'
     return 'Pending Classification'
   }
 
+  const filteredEvidence = useMemo(() => {
+    return allEvidence.filter(item => {
+      const rel = String(item.relevance || '').trim().toUpperCase()
+      if (relevanceFilter === 'DIRECT') {
+        if (rel !== 'DIRECT') return false
+      } else if (relevanceFilter === 'RELATED') {
+        if (rel !== 'RELATED') return false
+      } else if (relevanceFilter === 'SUPPORTING') {
+        if (rel !== 'SUPPORTING') return false
+      }
+
+      if (search.trim()) {
+        const s = search.trim().toLowerCase()
+        const matches =
+          (item.sourceRecordId && item.sourceRecordId.toLowerCase().includes(s)) ||
+          (item.stableId && item.stableId.toLowerCase().includes(s)) ||
+          (item.title && item.title.toLowerCase().includes(s)) ||
+          (item.sourceType && item.sourceType.toLowerCase().includes(s)) ||
+          (item.discoveryReason && item.discoveryReason.toLowerCase().includes(s))
+        if (!matches) return false
+      }
+
+      if (source && item.sourceType !== source) {
+        return false
+      }
+
+      if (review && (item.reviewStatus || 'PENDING_REVIEW') !== review) {
+        return false
+      }
+
+      return true
+    })
+  }, [allEvidence, relevanceFilter, search, source, review])
+
+  const sortedEvidence = useMemo(() => {
+    const relevanceOrder: Record<string, number> = {
+      DIRECT: 0,
+      RELATED: 1,
+      SUPPORTING: 2,
+      RELEVANT: 3,
+      NOT_RELEVANT: 4,
+    }
+    return [...filteredEvidence].sort((left, right) => {
+      const relLeft = relevanceOrder[String(left.relevance || '').trim().toUpperCase()] ?? 99
+      const relRight = relevanceOrder[String(right.relevance || '').trim().toUpperCase()] ?? 99
+      if (relLeft !== relRight) return relLeft - relRight
+
+      const impLeft = importanceRank[left.importance || ''] ?? 3
+      const impRight = importanceRank[right.importance || ''] ?? 3
+      if (impLeft !== impRight) return impLeft - impRight
+
+      const distLeft = left.distance ?? 99
+      const distRight = right.distance ?? 99
+      if (distLeft !== distRight) return distLeft - distRight
+
+      return (left.stableId || '').localeCompare(right.stableId || '')
+    })
+  }, [filteredEvidence])
+
+  const filteredTotal = sortedEvidence.length
+  const totalPages = Math.ceil(filteredTotal / size)
+  const activePage = Math.min(page, Math.max(0, totalPages - 1))
+
+  const paginatedEvidence = useMemo(() => {
+    const from = activePage * size
+    return sortedEvidence.slice(from, from + size)
+  }, [sortedEvidence, activePage, size])
+
   const groupedItems = useMemo(() => {
     const groups = new Map<string, InvestigationEvidence[]>()
-    for (const item of items) {
+    for (const item of paginatedEvidence) {
       const group = relevanceGroup(item)
       const entries = groups.get(group) || []
       entries.push(item)
       groups.set(group, entries)
     }
-    for (const entries of groups.values()) {
-      entries.sort(
-        (left, right) =>
-          (importanceRank[left.importance || ''] ?? 3) - (importanceRank[right.importance || ''] ?? 3) ||
-          (left.distance ?? 99) - (right.distance ?? 99) ||
-          (left.stableId || '').localeCompare(right.stableId || '')
-      )
-    }
-    return [
-      'Direct Evidence (Batch Anchor)',
-      'Related Evidence (Multi-Hop Graph Discovery)',
-      'Supporting Traceability Records',
+    const order = [
+      'Direct Evidence',
+      'Related Evidence',
+      'Supporting Evidence',
       'Relevant',
       'Pending Classification',
-      'Not relevant',
+      'Not Relevant',
     ]
+    return order
       .filter(group => groups.has(group))
       .map(group => ({ group, items: groups.get(group) || [] }))
-  }, [items])
+  }, [paginatedEvidence])
+
+  const emptyMessage = useMemo(() => {
+    if (relevanceFilter === 'DIRECT') return 'No direct evidence records found.'
+    if (relevanceFilter === 'RELATED') return 'No related evidence records found.'
+    if (relevanceFilter === 'SUPPORTING') return 'No supporting evidence records found.'
+    return 'No evidence records found matching the current filters.'
+  }, [relevanceFilter])
+
+  const nextPending = () => {
+    const next = sortedEvidence.find(
+      item => (item.reviewStatus || 'PENDING_REVIEW') === 'PENDING_REVIEW' && item.stableId !== selected?.stableId
+    )
+    if (next) openEvidence(next)
+  }
 
   return (
     <div data-evidence-review style={{ display: 'flex', flexDirection: 'column', gap: 14, color: TEXT }}>
@@ -407,7 +485,7 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
       {/* Summary metric tiles */}
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
         {[
-          ['Evidence records', summary.totalEvidence || total],
+          ['Evidence records', summary.totalEvidence || allEvidence.length],
           ['Source systems', summary.sourceSystems.length],
           ['Reviewed', summary.reviewed],
           ['Pending review', summary.pendingReview],
@@ -508,9 +586,9 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
         <div role="status" style={{ background: CARD, padding: 28, textAlign: 'center', color: SECONDARY }}>
           Loading evidence…
         </div>
-      ) : items.length === 0 ? (
+      ) : filteredTotal === 0 ? (
         <div style={{ background: CARD, padding: 32, textAlign: 'center', color: SECONDARY }}>
-          No evidence records found matching the current filters.
+          {emptyMessage}
         </div>
       ) : (
         <section style={{ overflowX: 'auto', background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10 }}>
@@ -537,7 +615,7 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
                         borderTop: `1px solid ${BORDER}`,
                       }}
                     >
-                      {group} · {groupItems.length} records
+                      {group} ({groupItems.length} {groupItems.length === 1 ? 'record' : 'records'})
                     </th>
                   </tr>
                   {groupItems.map(item => (
@@ -579,20 +657,20 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
             </tbody>
           </table>
           <div style={{ padding: 12, color: SECONDARY, fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Showing {items.length} of {total} records</span>
+            <span>Showing {paginatedEvidence.length} of {filteredTotal} records</span>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button
-                disabled={page === 0}
-                onClick={() => setPage(v => v - 1)}
-                style={{ background: PANEL, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '4px 8px', cursor: 'pointer' }}
+                disabled={activePage === 0}
+                onClick={() => setPage(v => Math.max(0, v - 1))}
+                style={{ background: PANEL, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '4px 8px', cursor: activePage === 0 ? 'not-allowed' : 'pointer' }}
               >
                 Previous
               </button>
-              <span>Page {page + 1} of {Math.max(1, totalPages)}</span>
+              <span>Page {activePage + 1} of {Math.max(1, totalPages)}</span>
               <button
-                disabled={page + 1 >= totalPages}
+                disabled={activePage + 1 >= totalPages}
                 onClick={() => setPage(v => v + 1)}
-                style={{ background: PANEL, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '4px 8px', cursor: 'pointer' }}
+                style={{ background: PANEL, color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '4px 8px', cursor: activePage + 1 >= totalPages ? 'not-allowed' : 'pointer' }}
               >
                 Next
               </button>
@@ -851,7 +929,7 @@ export function InvestigationEvidenceReview({ investigation }: { investigation: 
                   onClick={nextPending}
                   disabled={
                     saving ||
-                    !items.some(
+                    !sortedEvidence.some(
                       item => (item.reviewStatus || 'PENDING_REVIEW') === 'PENDING_REVIEW' && item.stableId !== selected.stableId
                     )
                   }

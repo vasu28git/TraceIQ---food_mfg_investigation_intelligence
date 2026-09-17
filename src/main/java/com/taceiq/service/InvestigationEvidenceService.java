@@ -306,6 +306,16 @@ public class InvestigationEvidenceService {
             CanonicalEvidence ce = link.getCanonicalEvidence();
             if (ce == null || Boolean.TRUE.equals(ce.getIsDeleted())) continue;
             if (ce.getOrganisation() != null && !ce.getOrganisation().getOrgId().equals(orgId)) continue;
+            // Exclude cross-batch MES/PRODUCTION records that do not belong to this investigation's batch
+            if (inv.getBatchReference() != null && ce.getNormalizedPayload() != null) {
+                String srcType = ce.getSourceType();
+                if ("MES".equalsIgnoreCase(srcType) || "PRODUCTION".equalsIgnoreCase(srcType)) {
+                    String evBatch = extractStoredField(ce.getNormalizedPayload(), "batchReference", "batch_id", "batch", "batchReference");
+                    if (evBatch != null && !inv.getBatchReference().trim().equalsIgnoreCase(evBatch.trim())) {
+                        continue;
+                    }
+                }
+            }
             String key = ce.getExternalId() != null ? ce.getExternalId() : String.valueOf(ce.getId());
             merged.put(key, withAssessment(toResponse(link, orgId, investigationId, incidentProvenance), assessmentMap.get(ce.getId())));
         }
@@ -313,6 +323,16 @@ public class InvestigationEvidenceService {
             String key = ce.getExternalId() != null ? ce.getExternalId() : String.valueOf(ce.getId());
             if (merged.containsKey(key)) continue;
             if (ce.getOrganisation() != null && !ce.getOrganisation().getOrgId().equals(orgId)) continue;
+            // Exclude cross-batch MES/PRODUCTION records that do not belong to this investigation's batch
+            if (inv.getBatchReference() != null && ce.getNormalizedPayload() != null) {
+                String srcType = ce.getSourceType();
+                if ("MES".equalsIgnoreCase(srcType) || "PRODUCTION".equalsIgnoreCase(srcType)) {
+                    String evBatch = extractStoredField(ce.getNormalizedPayload(), "batchReference", "batch_id", "batch", "batchReference");
+                    if (evBatch != null && !inv.getBatchReference().trim().equalsIgnoreCase(evBatch.trim())) {
+                        continue;
+                    }
+                }
+            }
             merged.put(key, withAssessment(fromCanonical(ce, orgId, investigationId, incidentProvenance), assessmentMap.get(ce.getId())));
         }
 
@@ -418,6 +438,7 @@ public class InvestigationEvidenceService {
                 .discoveryMethod("LEGACY_CANONICAL_INCIDENT")
                 .discoveryPath(Collections.emptyList())
                 .discoveryReason(corr != null ? corr : "Direct legacy incident canonical evidence")
+                .semanticRoute("DIRECT_BATCH")
                 .relevance("DIRECT")
                 .reviewStatus("PENDING_REVIEW")
                 .build();
@@ -468,12 +489,47 @@ public class InvestigationEvidenceService {
                 .discoveryMethod(link.getDiscoveryMethod())
                 .discoveryPath(parsedPath)
                 .discoveryReason(link.getDiscoveryReason())
+                .semanticRoute(resolveSemanticRoute(link, parsedPath))
                 .relevance(link.getRelevance())
                 .reviewStatus(link.getReviewStatus())
                 .investigatorNotes(link.getInvestigatorNotes())
                 .reviewedByUserId(link.getReviewedBy() != null ? link.getReviewedBy().getId() : null)
                 .reviewedAt(link.getReviewedAt())
                 .build();
+    }
+
+    private String resolveSemanticRoute(InvestigationEvidence link, List<String> path) {
+        if (link == null) return "GRAPH_ROUTE";
+        if (link.getDistance() != null && link.getDistance() == 1) {
+            return "DIRECT_BATCH";
+        }
+        if (path != null && path.size() > 2) {
+            String mid = path.get(1).toUpperCase(Locale.ROOT);
+            if (mid.startsWith("M-") || mid.contains("MACHINE")) return "MACHINE_ROUTE";
+            if (mid.startsWith("SUP-") || mid.contains("SUPPLIER")) return "SUPPLIER_ROUTE";
+            if (mid.startsWith("WZ-") || mid.startsWith("WH-") || mid.startsWith("LOG-") || mid.contains("ZONE") || mid.contains("WAREHOUSE")) return "WAREHOUSE_ROUTE";
+            if (mid.startsWith("PRD-") || mid.contains("PRODUCT")) return "PRODUCT_ROUTE";
+            if (mid.startsWith("CUST-") || mid.contains("CUSTOMER")) return "CUSTOMER_ROUTE";
+        }
+        if (link.getDiscoveryReason() != null) {
+            String r = link.getDiscoveryReason().toLowerCase(Locale.ROOT);
+            if (r.contains("machine")) return "MACHINE_ROUTE";
+            if (r.contains("supplier")) return "SUPPLIER_ROUTE";
+            if (r.contains("warehouse") || r.contains("storage")) return "WAREHOUSE_ROUTE";
+            if (r.contains("product") || r.contains("specification")) return "PRODUCT_ROUTE";
+            if (r.contains("customer")) return "CUSTOMER_ROUTE";
+            if (r.contains("derived")) return "DERIVED_EVIDENCE";
+        }
+        CanonicalEvidence ce = link.getCanonicalEvidence();
+        if (ce != null && ce.getNormalizedPayload() != null) {
+            String p = ce.getNormalizedPayload();
+            if (extractStoredField(p, "machine_id", "machine_reference", "machineReference") != null) return "MACHINE_ROUTE";
+            if (extractStoredField(p, "supplier_id", "supplier_reference", "supplierReference") != null) return "SUPPLIER_ROUTE";
+            if (extractStoredField(p, "warehouse_zone", "warehouseZone", "zone") != null) return "WAREHOUSE_ROUTE";
+            if (extractStoredField(p, "customer_id", "customerId", "customer") != null) return "CUSTOMER_ROUTE";
+            if (extractStoredField(p, "product_id", "product_reference", "productReference") != null) return "PRODUCT_ROUTE";
+        }
+        return "GRAPH_ROUTE";
     }
 
     private static List<String> parsePathJson(String json) {
@@ -842,6 +898,15 @@ public class InvestigationEvidenceService {
                     .thenComparingInt(EvidenceDiscoveryResult::distance));
             EvidenceDiscoveryResult best = candidates.get(0);
 
+            // Non-Evidence terminal target rejection:
+            // Discovery target must be an Evidence record, never a Batch node.
+            if (best.labelPath() != null && !best.labelPath().isEmpty()) {
+                String targetLabel = best.labelPath().get(best.labelPath().size() - 1);
+                if ("Batch".equalsIgnoreCase(targetLabel)) {
+                    continue;
+                }
+            }
+
             var classification = relevanceClassifier != null
                     ? relevanceClassifier.classify(best, batchRef)
                     : new EvidenceRelevanceClassifier.ClassificationResult(
@@ -857,11 +922,6 @@ public class InvestigationEvidenceService {
                     if (u >= 0 && u + 1 < sub.length()) {
                         canonicalOpt = canonicalRepo.findByExternalIdAndOrganisationOrgId(sub.substring(u + 1), orgId);
                     }
-                }
-                if (canonicalOpt.isEmpty()) {
-                    canonicalOpt = canonicalRepo.findAllByOrganisationOrgId(orgId).stream()
-                            .filter(c -> c.getExternalId() != null && (c.getExternalId().equalsIgnoreCase(stableId) || c.getExternalId().endsWith("_" + stableId)))
-                            .findFirst();
                 }
             }
             if (canonicalOpt.isEmpty()) {
@@ -917,7 +977,10 @@ public class InvestigationEvidenceService {
                     existing.setDiscoveryPath(pathJson);
                     existing.setDiscoveryReason(classification.discoveryReason());
                     existing.setDiscoveryMethod("NEO4J_GRAPH_TRAVERSAL");
-                    existing.setRelevance(classification.relevance());
+                    // Preserve reviewed/rejected relevance on already-reviewed rows
+                    if (!isReviewed) {
+                        existing.setRelevance(classification.relevance());
+                    }
                     linkRepository.save(existing);
                     attached++;
                 }

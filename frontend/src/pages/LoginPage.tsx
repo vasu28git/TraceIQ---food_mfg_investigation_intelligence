@@ -65,7 +65,7 @@ export function LoginPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           <div style={{ width: 36, height: 36, borderRadius: 8, background: '#0F172A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16 }}>T</div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: '#0F172A', lineHeight: 1 }}>TaceIQ</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: '#0F172A', lineHeight: 1 }}>TraceIQ</div>
             <div style={{ fontSize: 12, color: '#64748B' }}>Sign in to your workspace</div>
           </div>
         </div>

@@ -48,8 +48,10 @@ public class InvestigationEvidenceController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String sourceType,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String relevance,
+            @RequestParam(required = false) String reviewStatus,
             @RequestParam(required = false) String sort) {
-        Page<InvestigationEvidenceResponse> resp = service.listEvidence(investigationId, page, size, search, sourceType, status, sort);
+        Page<InvestigationEvidenceResponse> resp = service.listEvidence(investigationId, page, size, search, sourceType, status, relevance, reviewStatus, sort);
         return ResponseEntity.ok(resp);
     }
 

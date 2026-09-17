@@ -4,7 +4,6 @@ import { getApiErrorMessage } from '../../api/client'
 import type { Investigation } from '../../types/investigation'
 import { getInvestigation } from '../../services/investigationService'
 import { InvestigationOverview } from './InvestigationOverview'
-import { InvestigationNotes } from './investigation/InvestigationNotes'
 import { InvestigationTimeline } from './investigation/InvestigationTimeline'
 import { InvestigationEvidenceGraph } from './investigation/InvestigationEvidenceGraph'
 import { InvestigationEvidenceReview } from './investigation/InvestigationEvidenceReview'
@@ -18,7 +17,7 @@ const TEXT_MAIN = '#F8FAFC'
 const TEXT_SEC = '#94A3B8'
 const MUTED = '#475569'
 
-type Tab = 'overview' | 'evidence' | 'findings' | 'conclusion' | 'actions' | 'notes' | 'timeline' | 'evidence-graph'
+type Tab = 'overview' | 'evidence' | 'findings' | 'conclusion' | 'actions' | 'timeline' | 'evidence-graph'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
@@ -26,7 +25,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'findings', label: 'Findings' },
   { key: 'conclusion', label: 'Conclusion' },
   { key: 'actions', label: 'Actions' },
-  { key: 'notes', label: 'Notes' },
   { key: 'timeline', label: 'Timeline' },
   { key: 'evidence-graph', label: 'Evidence Graph' },
 ]
@@ -224,7 +222,6 @@ export function InvestigationWorkspacePage() {
         {tab === 'findings' && investigation && <InvestigationFindings investigation={investigation} />}
         {tab === 'conclusion' && investigation && <InvestigationConclusion investigation={investigation} />}
         {tab === 'actions' && investigation && <InvestigationActions investigation={investigation} />}
-        {tab === 'notes' && investigation && <InvestigationNotes investigationId={investigation.id} investigationStatus={investigation.status} />}
         {tab === 'timeline' && investigation && <InvestigationTimeline investigationId={investigation.id} />}
         {tab === 'evidence-graph' && investigation && (
           <InvestigationEvidenceGraph

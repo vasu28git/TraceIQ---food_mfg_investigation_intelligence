@@ -88,6 +88,7 @@ export interface InvestigationEvidence {
   discoveryMethod?: string | null
   discoveryPath?: string[] | null
   discoveryReason?: string | null
+  semanticRoute?: string | null
   reviewStatus?: 'PENDING_REVIEW' | 'REVIEWED' | 'REJECTED' | null
   relevance?: 'DIRECT' | 'RELATED' | 'SUPPORTING' | 'RELEVANT' | 'NOT_RELEVANT' | string | null
   assessmentRelevance?: 'RELEVANT' | 'NOT_RELEVANT' | null
